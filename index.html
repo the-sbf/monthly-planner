@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SBF Monthly Planner</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', 'Segoe UI', sans-serif; }
+  @media print {
+    .no-print { display: none !important; }
+    .sidebar { display: none !important; }
+    .main-area { padding: 0 !important; }
+  }
+  /* Mobile */
+  @media (max-width: 768px) {
+    .sidebar { display: none !important; }
+    .sidebar-toggle { display: flex !important; }
+    .sidebar.open { display: flex !important; position: fixed; top: 0; left: 0; z-index: 100; height: 100vh; width: 260px; box-shadow: 4px 0 24px rgba(0,0,0,.15); }
+    .sidebar-overlay { display: block !important; position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 99; }
+    .main-area { padding: 52px 10px 14px !important; }
+    .cal-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; }
+    .cal-scroll-inner { min-width: 700px; }
+    .top-bar { flex-direction: row; align-items: center; gap: 8px; }
+    .top-bar h1 { font-size: 20px !important; }
+    .top-bar-sub { display: none !important; }
+    .day-detail { padding: 14px !important; }
+  }
+  @media (min-width: 769px) {
+    .sidebar-toggle { display: none !important; }
+    .sidebar-overlay { display: none !important; }
+  }
+  /* Portrait rotate hint — only shows on portrait mobile */
+  .rotate-hint { display: none; }
+  @media screen and (orientation: portrait) and (max-width: 768px) {
+    .rotate-hint { display: flex !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+const STORAGE_KEY="sbf_planner";
+function loadSaved(){try{const d=JSON.parse(localStorage.getItem(STORAGE_KEY));if(d&&d.profile&&d.profile.name)return d;return null;}catch(e){return null;}}
+function saveToDisk(profile,events,email){try{localStorage.setItem(STORAGE_KEY,JSON.stringify({profile,events,email:email||'',savedAt:new Date().toISOString()}));}catch(e){console.warn("Save failed",e);}}
+
+const B={red:"#BF1717",grey:"#E6E6E6",coral:"#F56042",honey:"#F7B41B",berry:"#27265F",powder:"#84D3F1",redLight:"#FFF0F0",honeyLight:"#FFF8E6",berryLight:"#EEEEF8",powderLight:"#EDF8FF",greyLight:"#F7F7F7"};
+const LOGO="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAYAAACOEfKtAAAw70lEQVR4nN29eXwcxbUv/j1V3TPavWMMxgbH8TIz3SMhY8w6tlm9ybJhFJaQXEgCWUggCSHJhTxJBC65ISSQ7bIk4SVATDS2tVg2mOXZSoCAsZA0oxnbYBYTMHi3bG0z3VXn98dMi7EwBAjkvc/vfD7+SJ9Wd9WpU2ers5QJ/28Ace5nLBqlcbt309Fe2nPMMRyNxRgA517gfxN+/28BA9QQjcoNkYjRAMiPO04DkB0jGpUMHJXonzb82yatBcTcSERsbGvT9YDO/9uGSMQ4uLdvAsnMcWB3PEmMYkYJ5fBjgInQywoHQLyLfWLnyOKxb89ra3M/7ByfFnyqBOSsSIpkLMb5C2qtmDlZK3OOIHUKMT6rQSM1uWAYfVLjEBP3ANwPpnQWS/YDVMQsRoCoDKSKBRMExEEmflkzvZCR8rmLOzp2eHPUAiIYjVI0FtP0KYr6p0JABmhjJCLzOWRNeTDMoGqh6XQBLtaEHWDuIPCLgyxfUjMSb9fEoD7M+A3RqJRbt04wiKYJgQownSxZT9YCfQA/y+CmJZ3JLu/9DZGIMbetTX0ahPykCUgb8gjXEAiUlJjyMkFquYJZyNB/d5S71lH0fE0qlRn+scc1H2REhnOzBw2BgK/EMGYT8SImPh2gAWJuPOzoh2tSqV4gS8h5bW0KnyAhPzECNkQhPQ56YsaMMdovv0VEFzKwTYP+tKAz8eSR70fluN27ac8xbQwA3rcMiFg0SkAM0Rg8i8veHON2RwgANra16ToAGyMRseeYY7gmFjuCex8tt85l4Asgmi40rc8MGL+seql973Bc/6+DZ1EBoDYQ8LVWVNy8vjz04hPhwF3rgsHP5L+7IRIxGBANUXwcq/nP3icGxIZIxMh/2GpZUx4L23etLw+/uLY89KPaQMAHZDfwk7Dc/9IADYCsQXYnW217uRDqJkB2pTl9y7Kuba97iCIWQ01W7I4QnVpABCunlGKgYEQylXqzHtCrwtb1ZSTP6teOKhRU2sfcuawr+UMAaLKsc0sMLOnXolMPDq5cum1b73B/sAGQiEaBWAzRaBSU48zWipmTJRv/i8DlLvFtizuSq4ev4eOA+LgfbohEjBpANVROGdEaDjwiSN3gar5uYWf8qmVd217PcVtWFPOIxwCtDgdm32GPL64HtFD+MwyDV9YDmgFySD4zKLEC0OcoVg8wqwcAoMWyTibwn/oZzxOpZeTzfYkAbohG89dANYCqicVUEuAYspu0IRIxFnds2bGgM/ElxfwtocUNa+zgXxoqK0fUAGo4137q4E3YbAfmrwlb29aWh27N/xtnxYk4b4Ma5swpZIBqAdFozXz58bC1pTEcKM+OY7/SbNsn5c/RZAe6GoPBE4CcO1QRsptta/f6cvtLtcjOny+Ctbm5Gi3rnDW2fcFwnDlr4IYItbY8dGtr2NrWbNvz89f0UeEjcaCn7+a1tbmNYetGIrrfReaaRZ3dN3sEm9fW5lJO8ROg19vBJesr7Gdkf/9SArge0Ez0uCI+JJgeabbCVzOrzSA+DwDuraw0szpVsBZiHAMUA0S0ozvu+DBHQJ97SvhAe6NVaeURjoDsJgnSv/FJ/u91YeuJteXllz2b2zgCMK+tzWVAMECLOrtvFoqvJuL7msPBG+e1tbkfRy9+aAIyQHUA1cRiqskK/U5qXg6j4NRlXds2bohEDI9gtTkEV86ypjwatlqE4GuYxfcuiscfWTd1qp8BIpbP9Gt+24U8G9CXFRtiCYPnA8C0khKuicWU0FxGzKUEcA2gGq3g7YVpLNmW0V/RrAyIzEICeG4kIjZEIrIe0AX9vV8hgnNBR6IcTPUCqN7T339sLBoVGyIRWZuz8IQsxy3s7m5zfc6ppHl5ixX4fU0spupy0vNh6fKhXswNSAToRjvYLAAsjSeXAlkjUROLqdpIxKhva3O949T+/W8d66OCbT1Mc0pJHV8gxE1pF1+p6u7e+udQaHyR4E6fMO2FnZ17Hg1bt6c1ZnckEufV5bi30bKuHhTi8Uu7ul5ngJrtmeU+Mr4vBI4dVM4/Mq64LppKHajLbixvjEAe2h/oKJDysGZ9IK31L6oTW57McR8PX09Of0rP/WmxQ00KoGXx7qU51cPDv/tYkO+mNNmhdc229RCQFR2P295vxxrD4WueLLf6Wq3AirWVlnVvZWVR6yxrCgCsDlt/arSss7x3P25QYUgfW8Ebm6zQplpArLODlzTbgZ9urqw0s3+zomvtmf9nnR34P01W8DoP//x1ZNdnPdhoWY8Cn5ybM4Rgk2WtbLZCK4YNPjRBk23Xrglbz6wL2y80h62rgaw+a7EDr6wOB89vCs9Y9FhFqKOxPHjDcMQaokPEI29Rni70FtgQjUrObaSnx/IJsSY8fe6a8mB4OP7NwRnLW+xAT2t4Ws3acPCMVtt6vtHOGr2Gd8cbYpIWO/jnZiu0Mm/tH5+IHvEa7cBdjXZgfT7xvH8NgcCkZju4bq1tPdQYDpe3llvntpYHDzTZ9iUA0GwHl68vt/tbbauh1Z55qofw8HlqP6I+/gCrSQ2A7M45zC3WjGcarRlf9v64yrImNlmh1x6ITC4AspzvSdK73Gw91mhZd+fT4CPDu2I786omO9C9IRIxuHZo56khEPAxQM2hCnuNHeSGnEsCALFw4CtNdmi9996a8vLP5i/ec2fyLSgANMyZWAgAK2dZU1ZZ1sTm8MxgSyg0o6EyMKkxPP3E7DtzCvPH8hbvcet78Q88vtoOfs17vjoUijTaoR2bKyvNfOIMMUQuTtlkWd3NdvBL+WMdDY7KngwIAvQae0bIZfmEVHxqVSr1Ri0gjnaQXxUOLTI0xZTW1vJk8pUmO3Q/se5fmkhdlzvAu0Nn3Oyp5AjPv7W8/IaMaT5A6f7fAlgN4EwGSiR4vCYxwNAOgV6DxisEMYeYb5IGX7G4M/mz/HEaABkFNAHMtRCoBzcFg6cZkh6RJH/hkDtosrglo1G3NJH4HwL0qvLgKUToXd6R3OJtQD2gG4PBE0jSJmY6f1kikfBo8mEISA3RqBi3ezf17N/bKQi1VfHkqvyQUHMoNN4U+M6unjG1V+5oGwSAxnDwRjC+6COxTml1nk9h/gWp1AEAqAMomDslAEBDIDCJTC4thbw7Q3Sn1nQ1oEgwlymh1xtU8Bhrt41YQ4NYEAkH4hQivlwwn8LMJAgHSPoekdq9tl/xt4qIehcmEm/mM4BnbRstyyogXKulLlUKK6riyTUAsKbCvkQw/4+reZ8gGVnS1fWWF8OsicVUs20v11C3jBw1tjwXsHjPcfQ9BPRM+2orcAcRTVgWT34+j4toYyQi9/T+o7jIKfqthJidBj5fHY8/DwAtVui3kugzo4qKq09/7rkBT9fVAVQP6IbKwKQiLU8cdNQyE2I6CbSYEjc6Cr2FQlhpdnsciO8rFnt90Hdq6B7J5GNAuoQfSMjxBuGnPkJJWusuQ6Asrfk2AJe6rF8oEmJ9Wvhequ7o2JmTFq7NzT18na3h0F2S8GVFZtBVagEzX+4fGDj3+e3bnXpAe2tusq0Hwe6u6sSWG/LdnqMS0PN/miwrRKRbDhekw/7JFX3vF9VtrQheQZru0lpfuTmRas1H1PP+vR1rqQycmc7I0mKBOw3wQD/z6Op48qQmyzrbIPoskapKa9XDKL6rVDibBqB2pIXvAr8e9As2Wg3Bk9IZbbEUPzaJFAhPprUTvyix9blGO7izmLDTIfIPQH3bp83Bqnj8aQ+POoDmRiJiz549AmVl0t/fu8pPVDSotWLo/1qW2PJUixV8R5Beuji+5XmPDrFoVKR3dBSXDRR0gbG0qrs7gZw/7K3zCMuX89IZ0HcB+sdXbNp+CABQW0sM0Co7MH9tOLTqwalTywBgcUfyQQX3Uk3iJ/V5p5A8K8vNodD4ldbMc+HIO4sF7nZY+xUo6Cc6oSk8Y5kmfY0iNWYQ1GSQMVEifelIU0honlSg0n8kLe/T0JNGG4aAIS43BI4ZIF6ZgZ5ILL7cYs/8nE/gWBdkuRr+YjbuIeifrLID8xvKy8cRwHUAz2trc2tSqQxOOCEjwH+6sCsxVwhqKBBm69qw/SwRdxe7lMzhPuREX7Fp+yEWuEULfRdliXoE071rAXPs2WLNXADQLVWJ1CneM0+XtFrWKEn0ExI439X42uJ4/LHV4cC1BCxd1pU6zwtUMkCxQMBEKqUM2/6iYP3t6kS31RQKzSo06MReVuMLYe7UcO4sImPMQe3eY4KmjTV91Xsc9x8aep0gTjgsJCTYcMAkYDOwcLzPPP6djPNnF9g9Rogre9nZI4X+Tlr5TyyTeOuwwmvV8XhHc9jaRkz/a3D69JVIJmU0lXLypYgBarKtxwWoRQKb+l23IxclJ+S959Gg2Q5s0lrULevuXpcvykMcGA3Ech/JmzTw42FU5lW2fcziROLAgnj8GqVxgyB99/qw/YJg8VWl3G8yQMkY2CN2TSqV8VmBRhPuaYJ1b1M4cHmZKb/fq5xXDU3/mSZ3V5rENWnw1lKS10riyv2OOodB/8HAxKqu1G8k6/MMrU5f2t39awVMJu1Gd7vuQpMwf4SgrwyyTrrwfaUPvn6CvuGwcl4rk/yjVfaMSzTjEEOf49+2NVaTSmUIWdwAYEME2WiOcN/URGsWx+PP16RSznDi5YOG+jEJ3HQkrbwoRi6ouMoOzJdMt1cnkqcyakUM9RQFdGtwesSVxg0jR42tBl435rXtGLx76lS/XVZW8Xrpvs4r23YMertKADeUTx1nugXXgdSISQX+a98ccH6RNszbR5G+Pq3pYp9Qxxxk/NRk9TmfpgmGFEmH9WSwcZmbLkmR/+A/fEL+1FF8C5N2Csi8La3Udwe1Hl8gxGlC8gMmxBsKekaG+Q2GWFMqjO8McGZXkTAf6RlI/0r45G3H+33X/GNA/UJIdyBjDP60pv3VnuFn44Yo5PDUwXDwrHpjOPQcNN20LJF4ypO2rCOZi+BK0LcA8TsA2BjZKKJzazXV13OzoJ8YxB25ZJGbY+E0gOeA7HGqPjf5uqlTyxztP4tJX1YqDfVO2u3MCP1godYr+jW2Qbj+UmmOHHTUGM18ghb0h/3E8SJNl5qk/yZ9By9jEisn+Qtue3mw7/OsqXByke/+lwb6f+WXZo0J9Yc06LE+jRXFgs4iYJkBPabEoJG9Gew7rDPjTJ9coaC/vzs9eHaZYS45pAmFuuD59bb9FOLx/nxO83IjuePikER6ia15bW3uxkhEoK1NQ9PviPQ3ATwFRAHEsgqfAF5lTZ0ohe/RjIPTalKpvtpIRNa3tbkxO7jYBH5jCvGqDzBc4JcLOhOxPP2gkYtsjNu9mw707Lq8kI3vu8xUZhgzelz1TFW8+8w11szrTGFUZpie6MXAS8fIwuf6lGpbGk/ObbKtnxhQX81APCCFvsxg4Q4A3+jnCU8UuG+R4cOCAha/dhmuYl7pI/EfDvjO6nj3LWuswCZTylP2KWdWKQvbFDTfYfH3qkTit2uswIulplFxyHW3CDLJZbc+Mz0QA2Ie4TxCvq/o5kkqr7ft4gHWz7HmhcuSyX8wQDTk71jB7xF4xtJE6ksbIhHDy3Q12aFfCPDTVfHkqvXl1hcZ+JoGqMfRF1+STL4JvOvn/TkUGj/SwBMM6mVNP+th3jFS0sOs+AktuCzD/CQIr44g+VWXdVUa+nrDpef8prjfYT3VYX4DgEssTiRBd7mMywgKAvQQAz8gIEmMUiEwQZJ45ZCmK0zoxX5CnUH0aEbhFxniUyTpSsECUmDOftZXjISYJom/q1j4ezTmXZ5IHMiTGm4IBEpMQ9xnEkZqrXsIJAySeweg0oa5/+aq9rf7PTo1h4O/B7BtaVfypxsiEUPMbZub9WmYLgQZMQCUlyak6nj3t72TyAWdiT9e2JmYw5p+OCKd7vF0Rh3AG8LhkYWCfsUaokyI0xTUQ8Wk/uC6anSpKa8daxhfKACdKljt0cBbJgkfMaakRUEhEz3rMJ4qkcYpAmIciCeMMeV/gzJ3Eeje8T7fHcQ8EoSJhYaocJifFETPktSl0DipQJCfiXYc9g0cNMGzjzGML48w5JczmscWA390GQ8WkzFbQIti4t+smzq1rC6P45KpVD854g5iPAXg7EGNuzPgchBfrP1l+Wds0owGaL4QAOa2tWkCgFWVlROkM7hOmAVnVLW39+cr2oZAwJezUJxvKPIULGWPdyeNZ1H0bT/hBlfzyrTL3/dJeTcRT05LusnQfKmPsEyQjDuuc6tDPE7CvE0TP1AiRMUgc1qxembAR7HiDE4vMYxHeh1dqYGSMoM29mpn+aBR9KLPHfychJhTQPD3a+4g5i8Nkv62nzHoF8ZNDMxwWK9Ks27wk7wT4M5Djv5hkSF/VSRw/qBWPxc+9fOq9pf25WT3CNFttIMPlUiz/7B2phT4i5cv3LTpUP6aWyori7STfgbSWVTdsW2nAADhDJ4N4PWq9vb+hihkXc46N4dCDxdKXAqAWyvCN68Oz6whgPOjGARwLWoFi9JbS6SMgPBIBvLJYwr9X1SS1u30FZzRr0WbQeYEMP6R0XoECfETPxk3GoKPFaxn97l6hYLzUB+PfqA4I56piif/clipDgXcBNI/OOTqZ6u6tjSZzuDfM4U9v06zbujT9JAGzpbEYwtBtUKYtziMEga/KQQd1z36mCcGzf7TQNQ2qbDwP4hEMwFNZdKcqzK+WzDM6m7OxR8lU6HWzjzX4eqFmzYdqs1aYPZ0flV7ez+BX4MyzgY81mScLkDPZ/k5IOsBvboidJoW9NklidQfm+zQnwX0ORLi5hbLWuAlYLxAaEV4ZaRQ0OxBza0LOpOfN4l2OVqfZJL+zgnOYMNIpRZr1gkl8AqY31EEMgUFCFoWSnn+sQXmQ6SN2lJxsFqzyobMNK/3EVf5iM4X4McAQDAMs3/ExT6gfrwpVxQTnU0kTJ+QM5kVmPltTXhFMydO3rdveaFTHJMQ16XhTnYp848LurovGSB+vFCKM1ZXhE7LSZBoiEblrPZ2R27bfp4SfPzOg71WTSrVy8OiT55l1iSe1yROB5B1KAliGhgtADClsJABQCoxgslVj5XbN2S0E1nYseX4Fjt4r5I4yRtszzFRBmJgEhOE4CQpXLXWDi1Ok/twL3O/AIGFXAToacy8008ikib1NpT+4gCJw4KMaS7pigHHmSWhK8C4l4gOERgtCL5ZJKUBAD1w39pcWWm+4wz6JfB7EKX3OJm/EmEzgToy2n2ZQKOI8LABGj3IKJUC1ZLwGc0q1eeiz0fGtNZw4L+05hE+gzYZDh8HZI+v3qlClvQ/kzkoz75yx45M7VHCV3Pb2nR2I+kFTXouANC6qVP9mSL/hgwZ0ZqurrdqAeEp2NXhmXVl0oi4Dq4ZIPqsgP5NccY9+dytW/fXeRGWOXMKzf7D9xNhimQKCEEjNOuniZEiouf2+gpbdCajJpBuJOBgmrnFJHxGMy9VgMmaHYZwBfRJfilGMAiDWv+dwKNMEjMAwGG9BYw+vxSzCIRBpQ4C9DoAgwT5JHgQQjQq1m8WQFSlwSU7pX9xoeOUjBOZKleLUwEZMIlPd5kPMCilgJczrr7maEVOw/X88OdNFRXHsU6vPDiyb74xOGLERHL6NaZNewddXagHdL33RdeWWu/XpnAooFlfft7WrfuOCL/3uZN8BrkZrX4KkldktOpkwvoy6bt3QKkzxmfSVw5qZ5UisU2DTiXwLwwSIwaYLx6E8yKK+9/x95VVm0I+nNG8RbP6bKlhnJbRGhnOrsFHYqZPChxWKmOAX/UJMS0N3CIM//pM5tCxfvLNLgKt6GfsT7N+AwLPTMgMXOMjXORoMbLQkJm9Wl5ZyM4lRDTZIb3aT2JxBsbxAF7LCxTT0QyLB97zzNSOXb5tAT36UPFEQe7gCUSytyYWU8PzEg3RqPRyBtVd3Y3L46mnOcd5wVxUQsj0CQWQJxbC/Iaj6U/L4qkfM+v+jHSuHnB9CxX0W8cVFNxFRKe4gu5gxtOGEBkNeXxN/KXXfOniUQT6o4b41pJ4d9AVoibNOuMyDyXoFbOb1qpPEJa8EE8GmcT3ienhwzhcdHHi5Vc1i0kScBi8kYGfGyzOmuD3/VyR2N6raEHGMb9eoNTg0q7kD7Wm1UUwv1YAOtGAezwABN+NsPzTVGYtIGpiUMSyV2tzogDr8cR8eNhAAICaWEzVAKo+G90VnGeRooEAA4BP6wkO9BOu1j0lEk2rrZkLJOj3nKG7/ObAfX5By/dlMjcu7OqeRRpLR/qMRYdddRuxur0lHLoyI0r6WNKiRV1dv+baWrqoq7sxo/i/S6Q0mFkxsyqS0hhkvruqK/k4amuxsDP+M0Wi2hwwBpvDM64F6f/sc53/GmOYywF9zoVdifI9rlvrJ+OSIiHuYUrfDVL3r7SDS4pMxFxWuxTwJIMm5q/lQ0EkInLceIjYPVZIopFa4DDwrpU5GlA21zCkVGOpFDFAiriQNK5n4kWD2t01wjTXGSSKXOZtYBrVq9z9C7qSd6y27a8C2u5x1ONgLtKEqzTjupr29p6lnd1PbIhEjDoAq8PhGiHEgX6tM0QkiUgOaKUl8Z8ZEMFUPdUCYnlX1+M1qVQvWHxDA1dkCGP2u04rWJ7ZEg5dvrCz+5Z+7fQxuSMc6C2C5NhRhmzpd/U7YCwH41qDhZ8BiqVSHzp1OTf3U5HuFaCRAloXkdbvUaT/DKKxGBMAoWWw1DAYwP8oQff3Kd3qihEXGNJMFgiaKSDeYoAMdhdqwtpBiB9o0BkjR41dpf3uOV4mbGNbm66vr9cEt8IE38SaBQA2iMjVvJcH9RsE6GgMuh7QXnpV+YvPdNzAeoKclVbu9xwST7GmJQDAUO8UCBn0C/NFLYxzDyv1hCb8BsQPlElJmihIAEdjH4EDcyBIpQFdZIDkx6oIoNwixMsv/7rHcStdAL2+kju2Fxb22z37ry4E1aQ16jT45ticiQW+Q/i+NDizvCO+HcDZyKqCfQCAnBvBAFFX8ofrpk79ORX544JofDY8TD0dl2zrQ/27EeCh3MQLL+wDXgADpxPADZb1cwmgafr0UmJxXEaLWr/BX2DlHtptFCwa7+8tcHuNnx1QTne/MO9viEYlxeo/en0gs9bMUghNaYb8yHWCQ1FZdkNMfLIWWHHFpk2H6tra1GTpu/+CzviprsbfwdQRfe7NwepUKrW0I7XdC5l7BHsPXoDoHTvY60KDvLwKgevr3jdWl3slGzCtSSS2VScS2zK23c8k4orcv17wYmLWCYbv4avb293qZ7cdluAHAZxWqNTUmlhMfVDe9/1AwzAFybRwJB0GUPRRB0hmO4bA2t3haJp/UWfyhZzziVnt7Q4Doqu7+/nMjOT52eNeNpFO74aP3uMu1HkJm/6iY8EYo5hzvgUXbZg72Z8j2BGQNwblz1MTi6n09JnzO7tS8VpAzGpvdwhZK1oVTz09qPl8xfxW/lo+GohCTThsCKa9BJQC2Sr4D/u5d8SpSmx9MbewI7JVQ7/Hjnw/B0edJxgFIQYUkXmiT8Ac0FCaWTIwpudQwWgAOz8AJR4+z/AUJADOpTrF8njq6eFr+TDgFcUL6DLN7l7hcmYnQ5cBQDQbHP1IUDvMvTkKfGgLl6vAJ4d1pUkGmJk1oAuELITrmwoAsSNLev8ZHHXuekA34GMVuiMayxGbRRnYt1OYPv2GBgoaAoGS/MTLh4X6Ye7NUeBDc/WetrZsboLlOQqAAIiZtZ8IBPdMBt63h+Sjzl0DfOTGm6GcTyBQwqQL/FK+IaraX9oL6Iwp5UlAVg99lEE/KdgQiRhJgJtDp46XhDMGlMMgIgIowwwmcRG9a3w+dnH8vwJ1OdoUGsaJAsgs7Ozck0WEsFMIDgPvPY0MB+9E8i/gcUSnpqcC5rW1ufWAZnnoplGmLNUgCIKQQshBrTHGNE5usYJfztVgeycjaohmOzb/VaJyrtLrg97xaKNIhxWJnUAunAVQh2KcBuCh9xERaohGRc55fl9x9XIpw9uxGBAbc0egeW1t7nDlXg9gpWWdbQh8vUjic/tc1cKE0VrDZOg3mOjYg8p9pcgw7l9XHjpjQIs7KR7vBgDEoIC2I3AAsp1M+TjU5trIgKMaF8+af6BIe7RhxmlgdOa+A5rsmacy5J3L4t1nDg/l5EUqAACPhQOzXSCzuCvVOfxvw3HyMnv5D5tOP73U19d3LljNUaBxGi6KyLD62d0Joh5m8jPx7YLlfwJqJxjPMxlLMsy3+4EFptDfTTO6CghlGSUTQrCE4J0C9ExfRj01PDzl1W6/H1E8nd88fXoJFcnxSztS2z38G6LZwMFwWjRbob8xiRuq4/HnCciGs9/KpJ9XmqPLk8lX8sM7APjOORMLpw+MuUiQqjaIK/sV3lkaT55ely3cYQK4pbKyiJ2BrwmiSQwdIi37maAA9EPwPmjeazIRCZqugVdBuiOt5GuC+AETvHlhPHlVi2U9PSgHlkkuvAoEKbQaKUF/06CTwDSpOpG4odEKbkxDfKeI6IcMHusKfX0hUwgkwsQ8SUEkXGi/AI/VzGOYUECAj1gIAZl02dneOXrsfR5Rh7JtVuAOCBJLu5LfbbWsUYsTiQNHbESOJista4oQaqXrYE5NKpURGyIRY1Z7u8OELlNSNXKVTJ53vjocqpk5OPJpk9Q3tdb2+R3Jkwi0e41tL64HdAxRAYCMnh6lmQbAKg0tVg0kuquP2+O/TEPcYTCNNklcq0gUaOK/aRZpV9GsAqHvAdC8MJ68am156FZF5NZ0bt8jwRWGVi9KZiGUMpmpg6CmNUSjUgAbywRurIrHoxr6tTKIX7iap2vmHhd4CqyP9YOv94NcCLP+sw5HD7G8WIE3auH2C8l9dW1tmnNFUPPa2lTT9OmlDDr/eGP/jxrDwXpN6pp1U6f6W+yZV3jcODcSEQyQQapaMMdrUqnMhkjEEJ7zrEmu0EAVAB5KdQIsNXFGQ1zQ2X2qC5lstQMXEvAqQ1fVAmJK5auCASzcvj3tFJc+kCHjFZ8hd/nD1g1vHtt/i5/USmY6wzH8k/slN4PEFMGcMgXNTTONXRrv/tEqO3SrD/RtgvMcAJBCmWvIg9Ai4xrGiALh7ifo4ppYTBHE3/wka5rt0K+XxZNXDSo125DCYkGv+AQHXWncrhw9zQVfZbLz4HZT3jaa+OoSk7Y7EK9VdUYfRFZqsDESkQCY/OaNgmhwW2asn7Sohnngl5li81uKUAUAHI2KXAqTGVTFMFcA2YOH8Kqvlk2b9hSYS7OV7vUcjcW4FhBLE4kYgd0WO3CmwfoJIXEfCZ6lpPuHekDPam93vSNUzXPPDRgsdhikg0z6baGlkWH0DYJmV7W3948yCl+C0pszQi/3EQVA8qqmiplnG4xTDmr+iQbtbg7PDI7wGQuUZj+EeBOMSY7rLyo1C+avDgdma3L3H1buagaf1BgKVbsC1/oERbR2z9OsNvhMs3dxKvVOH/SZrqYSgu5jon1SIyhcnSLU67ojz+PCgXhaEu8dZ+itUmjFA8ceJ5i/6Aj6IQBszBoPXhMMhg3mspGjRj3FyDYdCeR2gmIxpUk2uiy+RQBvjEREXW1tliEE3SAhH1Skv9HLuHBJZ/Ks5R1b/94QCExqCATMnH7ghijk0nj8sZ2uuKdIiDMENDKSrvITnb+u3H7AdTIbSYpZGvjfh1zVUd3VtYGUuBGCbzFBxQK0k9n8cq9y2kzFFUz0qhYYp6Q+u0+568H8tX5ZsIsFTK3pViHoG45R2Hg4oxJa8/8miAsp0//0uvLgPcUQJyrpXm0QJpgC5d2HB25f3t39d0+X5cTXJUBfHI+vX9SVXKQ1L5Esnin2u88yi+drOlLbPVVGALMhvqlJNObqZbznQx42Wiorx3Bm4BmpEFmUSu3yFCgB/OdQaDwAXNbdvQsA1oZDV/oF/bJf8e+r4t3Xe93gDdGo8G/ZMtZnkOVqivgklTtKPaOhZytQ/7J48vNNlnUPgU8mn3+udpx4dTw+tdkOPKmInjU0BR3wUyQoqLX5FynUVVKzUlBPCcFf0Nq4TRI/3FNQFCpJ925QWkYNwgaw/nl1Inl3Uzj4qAQOCJav+olCg3BfMIBn/TA69nR1Ha4BlEfE1bY9zYR+QAgqcllcu7Sr6xkAWDd76sTeTEk62tm51zOksUBgvM9EmzDcM5a0v7TPo8uQz+dZo0Y7+HPJMKoSyW95z/LdlVX2lGOKqeRhl/Rpfkmn9Wf0/SDcvzSe/H1+S/0DkycXjBs5+uL+Qv8q36HBk2BkVhxTdGjO/v6yiMv4k4Do7uXiSwuM/vk9I0Y3jjywZ6cget2n+Y4BojQRLRXg+5j1NwSEIcH3aI0JSlJwpDR/eMgZrHQMc6JWtMuA/q0EjdOgpRnXfds05JOOq84tKCx0hTO4YHE8+WC+21IHUHDORL9voOx5H9PdmgwjzfpzF8UT89/j5kSjkrKFp78EkaqKp77t0QXI87zntrWpWkCwX92mCYtaZ86cvLGtTdcCoq42a8ZXlQdPKRJFmyX4mYymTf2Onuw6BcsY9INVtn3MvLY2tyE35pU7dgwu7up4yHfo0EnCcB8RWnxu98DI+ZrFz1zJlzG0Y3RP2ru8M7Fi9MFdX9CEpxm0e0EitQKEXgJR2pDERAQm6bLuX9Kdepi0OOmgyvxFk/zWRR2JllLXfZmg97KQXyLWj/gMYwIxvl5omGsHlaLF8eSD+ef79spKAwD8fSMflKA9C+PJ37vsDhQSTl1Tbq1pDId+e29lZVEtILgWoi4W45bKwCRBtAhm4W21gJibZRIcQUACOBiN0vIXtu5j0vc6Prq7HtBzIxGB+mydMZR422F2e3VmVYk0Ps/Mv1QFPa4y3bMNcsY1lE8dVwN4Acps+5RS/4Dpn+MaPI9Y3OaQmG+yb7SW6KlBTD1cWTkWbHxHavU9oWG2BgLHmponkMYBKC0B9DPRAMg3sgGQTDzJVaIOECfGLGvBhanUfg1RktHpvWBECXiYhRhNrM8tkLKvIQqZf7Sa1d7u1AOaBR6WkCOfLA+tJMZXTIhFPk33Se3+7pr29v46gDdujIh6QGsHdyuS91W1t+8NDtWRDyMgANTEYrohGpVO15Y7ieVJzba9eF5bm5sLIdFFicSbWlGNhPHkgFJ+GP4zS3yj0xe1b32bWVgFuvDJFeHpJ+ZSpFQTi6nqbdsOV7W395MUT7/ef9yphUIw2L1dKv0TAChTmSaWuK86sW0bmMedCOx3iWZBuC8YoCIAhzXU64D72WznOw/4DfZr0NV+4M/rbfsYLajWZPmnd/z+LZL5DHbdbYsTiQNV7e39uZpt3JtrPGy0gv/ZZAcvqe7qbjyg+VxFSPsMOqnXdXFBPL7Gi2/GolExr63NbQqHFgGYkp6W+FlePSSOSkAAHI3FONsQQ1cz1K+bpk8vzQVFmaNRWd3dvdkl1Cnms6s7OnYu2LTpcHcg4KuOJx8B887R5Es2WzPm1AF8b2WlmQsW0LL2ROK67Y+lFfNJYP6xMeAmG23rIaGZfKwfW529oOJAKJXKGMByAB2C1WgweomxA8B8AlgL6neYzirtNXexwJpB6EY/iy0C+p5RmcyUxYnEgeXJ5JY8sSUC+Jr2dqchGpVCyReJ6fdNllV1eSJx4IKO7stdputJ0vXd2fa1d7s3p08vJa1/Q6yvqYlBIRYDhp2Xjxp58fIdTXbgNmJYSxOpqnsrK81r2tudfINSC4g61IJQr5tt+1awXlgo6Y5Bhe/6lDr/wlRqP5A1ULlrSoYS143h6Scy+y9UcDokyDSYrmDwZE0Uk8C1ivUNStBMyZhEJN8G8zcyEOeZwC2C3eO1pltguhnFht8UtG9pR3c8tzoCct1RubqX1oqKyekMj7wo2dkFAK1WxdkuuY86InMef9Z+fnhwwVtrkzWzBRDd1Ynkfx6tyeZ9Cegtel5bm9tiB/6qIdZVx7t/srmy0vTyHbmdIAL0mlDgRyzo64NkzKrp6nqrIRAoMU1zVgHpr/cPOtddtHXr2964XlTEQ6YhEChB2SFl9o26nIUokKzO00w3S8iJGXLDAnqUkvJxw8W5EOqgNuQTWrkn+Fz5HPn3Ha5qf7vf2/RcQxDyL/9ZN3VqmVPst6DpcUXiguW5BpzVdugqg/VVVYnUmQ2BgC+ZSrn1gPaI1xgOfB/Qi5d1bT0r3+p+aPDiYw2BwOgmO7ijybKqvN0BAK6tFQDQHA6escYKvd5UUXFcjiA+AFg3e3bZWjv0o/Vhq6/VCt7cUFk5wuOO2tyNax/UStowZ2JhYzg8ct3s2WUbJmdbU732hCPey4Xmc/+GVFJjMHjCo+X2gy1W4HcA0GzNXNpshfoaLescAGiyrJub7ODaLPGzZXpDetIOLmm2gjseCwRGeyroIxEvj4gCAFbZdqjJCu1qtqw52YW8u/CGOXMKvRZUT3fk9RnfuiYcWNNiWw+uLrdrawHxJ9sufg8RolG5ubLS9Ob7IIS9RLz38z1jlZePawqH7niqwj641rbXN8yZWOht6mpr5tLWcOiNx8utZ1vs4ObGcPhEj1GGGsvtmae2WMFda+wZoXwafGwYisqEQpEWO/hOi2WdDLy7Wx54xPPebywPnt5sBXsbw+GRALBu6lR/s20vfrzcfrPFDt33aLl1rncVytHm84iVv8APasNvDoeDa8KB2c3hcLDFtv97TTg4t8kKvrpqxowJtbkOeAB4uHLa2KcqrLPzrxh4l3h2RZMdfKcxHJw7HJd/CYY6uctnnNdiBXe1BAJnAnninHckrAXEY4HA6GY79HZjLhzkiWCTFXxqrRX4RrM1c+n6k+0nmyzrewCwsqLi7PUnW5XrZs8u+5AoUQOissmyzm06fXopADSHQ59vtgOd+S812sFfNdqBdcBQp/0R3JRP2OZw8IwmO/hOSzh4fv6a/ykiHxLhIaOyxpp5lib5F2h5/dLurgbOXu2kvYhMPaAbrRmVBPkf1YnkN73vVoTDJ5bCeRUwGyRwz0t9fX+fMHasgOP4TCe93UfYQqAiF3j2OMP33cr2dhc5I7W6IjizAL6vum76BJ80xgwo3tyZWP69CnvVNgJ/e2k8uXZDIFB80KS4EHx+emrwtQOvviqmleyVPQdLdmgtrl+eSKzwDA2yxznURaNEsZhqtqwok74bUlxS3ZH460cxGh9avue1tbkbIhFjSWLL30hjPoS+dU3YqqdYTBGyjTaee7MssbW9OpH8Zr64FXHmBy7o14PAvYbEjZOLij5X89xzA2YmYxPj1UVd3Wc/35WYzYyLdjrOhZQ9wGdLkBUCrnYuFsK8RZC8lEozdfWo18S0EiyWA+C5qVS/ZH6BNS+ricXUqIEBmte2Y5CU+XliHgCyZWyEbMdlPaApFlPN4WC9hL5Ny8w5H5V4H4mAHhEbolFZ1d29ldOZSjDPWRO217VUThtbE4spzt1bwMhe/EDInrEZtUIDIR+J4AjS8rwXuxaOGDXqzwBAzJOKpZjSbAd+enq5fS3AA5r5JQA0btw4DQCGwHatuVezmiPgXM99BRcBgAZWEvgCDFVF0ABpMREAxo0bpxmgpd2dTyzr7m4CANTXD90V01JZOXZN2F4nmOaIgfSs5R0vb/FuZfooNPlY5pnzCrBbw9ZNAuILmnTd4s7ECuC9N0YyQLE5cwpGDPYtAujyQa1KelnUXJ5IHGi0g3/wC0ApbBUC/5VmFVge3/qSx70EcPOpJ42ngaIuYvGwafBraZc2Vy1fvonq63WzHYr5CBMZeEkxneKAqpfF4y/XIVtJy4Coi0TE3BwDAEBreeBSgOo0iweruhK3Dl/TvwU8LgOy1mtdOPTXdWG7aXVFcKb3zvtdZ/LEjBljNg/5XNYfVtmBCwFgtT3zhcby6ZfluSgEAA9EJhc02aEdq2ecMiZvGELOSreUBy5bZ4euaqisHOHhBrx7c5v3QUtlaMa6cLDp0XDoby3WjJNz7358P++TgCNuRAuHr32sPNSxrtz+VUugcpL3nHML8VyR4WN4tdhN9syK1VbgUhwlyd1ih25ba9vT/tnVyZzr+8i3uI8Fgyc8Wm796rFyq2OdHfrm0XD/uPCJUL421xpBADdUThlRokpukKAFYL0pQ/LeJZ3ZMyjw7jWeucT3P01m/zNggNorK43dPT2i8Pjj1fCLb/1MVxPTbC14fY/031HT3t7jBVU/SlXW+8Enyrr5B+6GQGB0iU9cLUCLGDhAxE19SrReFI/vHv6Nl/F/qTd7IeXVWRfmCNgYichsBjHmVXFhzzFtPPwu1FW2fUyh1IuJqZpAo6XWrYcz7v3Lt27dNxzHTwI+cdlnHHkFci0g5ljWYhLqYg05VRG/Daa/kcbf9ow+lPS63T8uPBCZXDBuf2GQhTxLQJxFwAQQb1dEKzd3JIZuEvm0rkL+1JQnA4RoVFDebj9RWTki46bnaaL5gjmgCX6heR+DXmPCK8xih0u0y8/pg33k73NVgQv0oVRKw+F0Mcg/ktgdL4gmE+MzAnyiEjRWMtKaeItkeioDuXFZV9fBITzyHP1PY53/FuvjGY7hotNUUXGc33UDLnQQQkxhpmM1OWVCs1+RL1e4raAJkForQKQ14ZBk8Q6kflWAUg6ZyeqOjp3vnW+oK/3/P8BHlqN94ObV1taKzZWV5ubKSrM2Fzr7oHGzFv7jVZ3+K/B/z/9BzsEGxLhIZAiPD/qPBDivTA7IVrR6l439O/A9Gvx//vqDCmG/FeMAAAAASUVORK5CYII=";
+const SUPA_URL='https://eicykphxovczhjrsxtym.supabase.co';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpY3lrcGh4b3ZjemhqcnN4dHltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzk5NDYsImV4cCI6MjA5MTkxNTk0Nn0.8RBqe5uKZPtnxv2y6cco3FxXTD0QUP-nh0I5l_HHCgM';
+const supa=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+
+const Lg=({s=50})=><img src={LOGO} alt="SBF" style={{width:s,height:s,borderRadius:"50%",objectFit:"cover",flexShrink:0}}/>;
+
+const DAYS_W=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const MO=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const SENIOR={compulsory:["English (Home Language)","Afrikaans (First Additional Language)","Mathematics","Natural Sciences","Technology","Social Sciences (History)","Social Sciences (Geography)","Economic & Management Sciences","Life Orientation","Creative Arts"],languages:["IsiXhosa","IsiZulu","Sesotho","Setswana","Sepedi","IsiNdebele","Siswati","Tshivenda","Xitsonga"]};
+const FET={compulsory:["English (Home Language)","Life Orientation"],fal:["Afrikaans (First Additional Language)","IsiXhosa (First Additional Language)"],math:["Mathematics","Mathematical Literacy"],electives:["Physical Sciences","Life Sciences","Accounting","Business Studies","Economics","Geography","History","Computer Applications Technology","Information Technology","Visual Arts","Music","Dramatic Arts","Tourism","Agricultural Sciences","Consumer Studies","Engineering Graphics & Design","Civil Technology","Electrical Technology","Mechanical Technology"],languages:["IsiXhosa","IsiZulu","Sesotho","Setswana","Sepedi","IsiNdebele","Siswati","Tshivenda","Xitsonga"]};
+const DEFAULT_ROUTINES=[{name:"Wake up / Get ready",time:"06:00",icon:"🌅"},{name:"Travel to school",time:"07:00",icon:"🚌"},{name:"Travel home",time:"14:30",icon:"🏠"},{name:"Dinner",time:"18:30",icon:"🍽"},{name:"Dishes / Chores",time:"19:15",icon:"🧹"},{name:"Bedtime",time:"21:30",icon:"🌙"}];
+function normalizeProfile(prof){const def={name:"",grade:"10",subs:[],extras:[],tutoring:[],commits:[],routines:DEFAULT_ROUTINES.map(r=>({...r,enabled:true}))};return{...def,...prof,subs:prof?.subs||[],extras:prof?.extras||[],tutoring:prof?.tutoring||[],commits:prof?.commits||[],routines:prof?.routines||def.routines};}
+function getSubs(grade){const g=parseInt(grade);if(g<=9)return[{title:"Compulsory Subjects (all required)",items:SENIOR.compulsory,req:true},{title:"Additional Language (optional)",items:SENIOR.languages,req:false}];return[{title:"Compulsory Subjects",items:FET.compulsory,req:true},{title:"First Additional Language (choose one)",items:FET.fal,req:true,radio:true},{title:"Mathematics (choose one)",items:FET.math,req:true,radio:true},{title:"Elective Subjects (choose 3–4)",items:FET.electives,req:false},{title:"Additional Language (optional)",items:FET.languages,req:false}];}
+const CATS=[{key:"school",label:"School",border:B.berry,bg:B.powderLight},{key:"exam",label:"Exam / Test",border:B.red,bg:B.redLight},{key:"assessment",label:"Assessment",border:"#7B3FA0",bg:"#F4EDFA"},{key:"project",label:"Project / Due Date",border:"#D4850A",bg:"#FEF5E7"},{key:"extra",label:"Extracurricular",border:"#2D8A6F",bg:"#E5F5E8"},{key:"tutor",label:"Extra Tutoring",border:B.coral,bg:"#FFF3F0"},{key:"commit",label:"Life Commitment",border:B.honey,bg:B.honeyLight},{key:"routine",label:"Daily Routine",border:"#8B8B8B",bg:"#F3F3F0"},{key:"study",label:"Study",border:B.berry,bg:B.berryLight},{key:"free",label:"Free Time",border:"#CCC",bg:B.greyLight}];
+const CM=Object.fromEntries(CATS.map(c=>[c.key,c]));
+const STEPS=6;
+
+function App(){
+  const saved=useRef(loadSaved()).current;
+  const[step,setStep]=useState(saved?STEPS:0);
+  const[p,setP]=useState(saved?normalizeProfile(saved.profile):{name:"",grade:"10",subs:[],extras:[],tutoring:[],commits:[],routines:DEFAULT_ROUTINES.map(r=>({...r,enabled:true}))});
+  const[mo,setMo]=useState(new Date().getMonth());
+  const[yr,setYr]=useState(new Date().getFullYear());
+  const[evts,setEvts]=useState(saved?saved.events||{}:{});
+  const[sel,setSel]=useState(null);
+  const[showF,setShowF]=useState(false);
+  const[f,setF]=useState({title:"",cat:"study",time:"09:00",notes:""});
+  const[eIdx,setEIdx]=useState(null);
+  const[tmp,setTmp]=useState("");
+  const[tmp2,setTmp2]=useState("");
+  const[tmpC,setTmpC]=useState({name:"",day:"Saturday"});
+  const[newR,setNewR]=useState({name:"",time:"12:00"});
+  const[customSub,setCustomSub]=useState("");
+  const[showWelcome,setShowWelcome]=useState(!saved);
+  const[showPreteach,setShowPreteach]=useState(!saved);
+  const[authed,setAuthed]=useState(false);
+  const[authLoading,setAuthLoading]=useState(false);
+  const[authErr,setAuthErr]=useState('');
+  const[loginForm,setLoginForm]=useState({firstName:'',surname:'',email:''});
+  const[supId,setSupId]=useState(null);
+  const[userEmail,setUserEmail]=useState('');
+
+  useEffect(()=>{
+    if(step>=STEPS&&p.name){
+      saveToDisk(p,evts,userEmail);
+      if(supId){supa.from('planners').update({profile:p,events:evts,updated_at:new Date().toISOString()}).eq('id',supId).then(({error})=>{if(error)console.warn('Supabase sync failed',error);});}
+    }
+  },[p,evts,step,supId,userEmail]);
+  const[sideOpen,setSideOpen]=useState(false);
+  const[showExport,setShowExport]=useState(false);
+  const[exporting,setExporting]=useState(false);
+  const calRef=useRef(null);
+  const exportRef=useRef(null);
+
+  // Escape key closes day panel, add-event form, export dropdown, mobile sidebar
+  useEffect(()=>{
+    const onKey=(e)=>{if(e.key==="Escape"){setSel(null);setShowF(false);setShowExport(false);setSideOpen(false);}};
+    document.addEventListener("keydown",onKey);
+    return()=>document.removeEventListener("keydown",onKey);
+  },[]);
+
+  // Click outside export dropdown closes it
+  useEffect(()=>{
+    const onClick=(e)=>{if(exportRef.current&&!exportRef.current.contains(e.target))setShowExport(false);};
+    document.addEventListener("mousedown",onClick);
+    return()=>document.removeEventListener("mousedown",onClick);
+  },[]);
+
+  const loginOrRegister=async()=>{
+    const{firstName,surname,email}=loginForm;
+    if(!firstName.trim()||!surname.trim()||!email.trim())return setAuthErr('Please fill in all fields.');
+    const emailLower=email.toLowerCase().trim();
+    if(!emailLower.endsWith('@mysbf.co.za'))return setAuthErr('Please use your @mysbf.co.za email address.');
+    setAuthLoading(true);setAuthErr('');
+    try{
+      // Fast path: check localStorage cache first
+      const cached=loadSaved();
+      if(cached&&cached.email===emailLower&&cached.profile?.name?.toLowerCase()===firstName.trim().toLowerCase()){
+        setP(normalizeProfile(cached.profile));setEvts(cached.events||{});
+        setStep(cached.profile.subs?.length?STEPS:0);
+        setShowPreteach(!cached.profile.subs?.length);setShowWelcome(false);
+        setUserEmail(emailLower);setAuthed(true);setAuthLoading(false);
+        // Grab supId in background for future saves
+        supa.from('planners').select('id').eq('email',emailLower).single().then(({data})=>{if(data)setSupId(data.id);});
+        return;
+      }
+      // Full Supabase lookup
+      const{data,error}=await supa.from('planners').select('*').eq('email',emailLower).single();
+      if(error&&error.code!=='PGRST116')throw error;
+      if(data){
+        // Returning user — verify name
+        if(data.first_name.toLowerCase()!==firstName.trim().toLowerCase()||data.surname.toLowerCase()!==surname.trim().toLowerCase()){
+          setAuthErr("Those details don't match our records. Please check your name and email.");
+          setAuthLoading(false);return;
+        }
+        setP(normalizeProfile(data.profile||{name:firstName.trim()}));
+        setEvts(data.events||{});setSupId(data.id);
+        const hasProfile=data.profile?.subs?.length>0;
+        setStep(hasProfile?STEPS:0);setShowPreteach(!hasProfile);setShowWelcome(false);
+        setUserEmail(emailLower);
+        saveToDisk(data.profile,data.events||{},emailLower);
+      }else{
+        // New user — create record
+        const defaultProfile={name:firstName.trim(),grade:'10',subs:[],extras:[],tutoring:[],commits:[],routines:DEFAULT_ROUTINES.map(r=>({...r,enabled:true}))};
+        const{data:newRow,error:createErr}=await supa.from('planners').insert({
+          first_name:firstName.trim(),surname:surname.trim(),email:emailLower,
+          profile:defaultProfile,events:{}
+        }).select('id').single();
+        if(createErr)throw createErr;
+        setP(defaultProfile);setEvts({});setSupId(newRow.id);
+        setStep(0);setShowPreteach(true);setShowWelcome(false);
+        setUserEmail(emailLower);
+      }
+      setAuthed(true);
+    }catch(e){console.error(e);setAuthErr('Something went wrong — please check your connection and try again.');}
+    setAuthLoading(false);
+  };
+
+  const reset=()=>{if(!confirm("Reset your planner? This will permanently delete all saved events and your profile."))return;localStorage.removeItem(STORAGE_KEY);setP({name:"",grade:"10",subs:[],extras:[],tutoring:[],commits:[],routines:DEFAULT_ROUTINES.map(r=>({...r,enabled:true}))});setEvts({});setSel(null);setShowF(false);setStep(0);setSideOpen(false);setAuthed(false);setSupId(null);setUserEmail('');setLoginForm({firstName:'',surname:'',email:''});setAuthErr('');};
+
+  const exportAs=async(fmt)=>{
+    setExporting(true);setShowExport(false);
+    try{
+      const el=calRef.current;if(!el)return;
+      const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:"#fff",scrollX:0,scrollY:0});
+      if(fmt==="jpeg"){
+        const link=document.createElement("a");
+        link.download=`${p.name||"Planner"}_${MO[mo]}_${yr}.jpg`;
+        link.href=canvas.toDataURL("image/jpeg",0.95);
+        link.click();
+      }else{
+        const {jsPDF}=window.jspdf;
+        const imgW=canvas.width;const imgH=canvas.height;
+        const ratio=imgW/imgH;
+        const pdf=ratio>=1?new jsPDF("landscape","mm","a4"):new jsPDF("portrait","mm","a4");
+        const pageW=pdf.internal.pageSize.getWidth();const pageH=pdf.internal.pageSize.getHeight();
+        let w,h;
+        if(imgW/imgH>pageW/pageH){w=pageW;h=pageW/ratio;}
+        else{h=pageH;w=pageH*ratio;}
+        pdf.addImage(canvas.toDataURL("image/jpeg",0.95),"JPEG",(pageW-w)/2,(pageH-h)/2,w,h);
+        pdf.save(`${p.name||"Planner"}_${MO[mo]}_${yr}.pdf`);
+      }
+    }catch(e){console.error("Export failed",e);alert("Export failed – please try again.");}
+    finally{setExporting(false);}
+  };
+  const dk=d=>`${yr}-${mo}-${d}`;
+  const isSP=parseInt(p.grade)<=9;
+  const save=()=>{if(!f.title.trim())return;const k=dk(sel),u={...evts};if(!u[k])u[k]=[];if(eIdx!==null)u[k][eIdx]={...f};else u[k]=[...u[k],{...f}];setEvts(u);setF({title:"",cat:"study",time:"09:00",notes:""});setShowF(false);setEIdx(null);};
+  const rm=(d,i)=>{const k=dk(d),u={...evts};u[k]=u[k].filter((_,j)=>j!==i);if(!u[k].length)delete u[k];setEvts(u);};
+  const Chip=({children,bg,border,color,onRemove})=><span style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${border}`,background:bg,fontSize:12,color,display:"inline-flex",alignItems:"center",gap:4}}>{children}{onRemove&&<span style={{cursor:"pointer",fontWeight:700,fontSize:16,opacity:.6,lineHeight:1}} onClick={onRemove}>×</span>}</span>;
+  const Back=({to})=><button style={st.sec} onClick={()=>setStep(to)}>← Back</button>;
+
+  /* ── LOGIN ── */
+  if(!authed)return(
+    <div style={st.wrap}>
+      <div style={{...st.card,maxWidth:480}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28}}>
+          <Lg s={48}/>
+          <div>
+            <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:16,color:B.berry}}>Students for a Better Future</div>
+            <div style={{fontSize:12,color:"#999",marginTop:1}}>Monthly Planner</div>
+          </div>
+        </div>
+        <h2 style={st.h2}>Access your planner</h2>
+        <p style={st.sub}>Enter your details to load your saved plan, or to get started for the first time.</p>
+        <div style={{display:"flex",gap:10,marginBottom:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>First name</div>
+            <input style={{...st.inp,marginBottom:0}} placeholder="e.g. Lerato" value={loginForm.firstName} onChange={e=>setLoginForm({...loginForm,firstName:e.target.value})} autoFocus/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>Surname</div>
+            <input style={{...st.inp,marginBottom:0}} placeholder="e.g. Dlamini" value={loginForm.surname} onChange={e=>setLoginForm({...loginForm,surname:e.target.value})}/>
+          </div>
+        </div>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>SBF Email</div>
+          <input style={st.inp} type="email" placeholder="yourname@mysbf.co.za" value={loginForm.email} onChange={e=>setLoginForm({...loginForm,email:e.target.value})} onKeyDown={e=>e.key==="Enter"&&loginOrRegister()}/>
+        </div>
+        {authErr&&<div style={{background:B.redLight,border:`1px solid ${B.red}`,borderRadius:10,padding:"10px 14px",fontSize:13,color:B.red,marginBottom:14}}>{authErr}</div>}
+        <button style={{...st.btn,opacity:authLoading?.6:1}} disabled={authLoading} onClick={loginOrRegister}>
+          {authLoading?"Loading your planner…":"Continue →"}
+        </button>
+        <p style={{fontSize:11,color:"#CCC",textAlign:"center",marginTop:16,lineHeight:1.7}}>
+          First time? We'll walk you through setting up your planner.<br/>
+          Been here before? We'll load everything right where you left it.
+        </p>
+      </div>
+    </div>
+  );
+
+  /* ── PRE-TEACH ── only for brand-new users who haven't completed onboarding */
+  if(showPreteach&&step<STEPS&&!p.subs?.length)return(
+    <div style={st.wrap}>
+      <div style={{...st.card,maxWidth:560}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:22}}>
+          <Lg s={44}/>
+          <div>
+            <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:15,color:B.berry}}>Students for a Better Future</div>
+            <div style={{fontSize:12,color:"#999",marginTop:1}}>Personalised Monthly Planner</div>
+          </div>
+        </div>
+
+        <div style={{background:`linear-gradient(135deg,${B.berryLight} 0%,${B.powderLight} 100%)`,borderRadius:14,padding:"20px 22px",marginBottom:20,borderLeft:`4px solid ${B.berry}`}}>
+          <h2 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:22,color:B.berry,margin:"0 0 6px"}}>A heads up before you start 👋</h2>
+          <p style={{fontSize:13,color:"#555",lineHeight:1.65,margin:0}}>
+            This planner isn't just about filling in dates — it's about building a system that actually works for <em>your</em> life. Before you dive in, here's some advice worth keeping in mind.
+          </p>
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:22}}>
+          {[
+            {icon:"🎯",title:"Start with what actually matters",body:"School, health, rest, family, fun — these are your priorities. Everything else should support them, not compete with them. If you build your month around what matters most, the rest falls into place."},
+            {icon:"🗓",title:"Plan big before you plan small",body:"Think in layers: month first, then week, then day. Big deadlines and events anchor your month — daily tasks flow from there. This stops you from feeling overwhelmed by a massive to-do list."},
+            {icon:"⚖️",title:"Balance is the whole point",body:"Your best performance — in school, sport, or anything — comes when you're not running on empty. Protect time for rest and things you enjoy. A packed schedule with no breathing room isn't productive, it's a burnout plan."},
+            {icon:"🕐",title:"Be honest with your time",body:"Don't plan a \"perfect\" month. Assume things will take longer than you think, and that life will happen. Leave buffer space. An 80% full plan you actually follow beats a 100% plan you abandon by week two."},
+            {icon:"🔄",title:"Planning is a living habit, not a one-time thing",body:"Check in with your planner regularly — even just once a week. Ask yourself: what worked, what didn't, what needs to shift? The most useful planner is one you keep coming back to."}
+          ].map((item,i)=>(
+            <div key={i} style={{display:"flex",gap:12,padding:"13px 15px",borderRadius:12,background:i%2===0?"#FAFAF7":"#fff",border:`1px solid ${B.grey}`}}>
+              <span style={{fontSize:20,flexShrink:0,marginTop:1}}>{item.icon}</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:B.berry,marginBottom:3}}>{item.title}</div>
+                <div style={{fontSize:12,color:"#666",lineHeight:1.6}}>{item.body}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{background:B.honeyLight,borderRadius:12,padding:"12px 16px",marginBottom:20,border:`1px solid ${B.honey}`,fontSize:12,color:"#7A5C0A",lineHeight:1.6}}>
+          <strong>Remember:</strong> A planner that's simple and visible is one you'll actually use. Keep it honest, keep it flexible, and make it yours.
+        </div>
+
+        <button style={st.btn} onClick={()=>setShowPreteach(false)}>Got it — let's build my planner 🚀</button>
+      </div>
+    </div>
+  );
+
+  /* ── ONBOARDING ── */
+  if(step<STEPS)return(
+    <div style={st.wrap}>
+      <div style={st.card}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+          <Lg s={50}/>
+          <div>
+            <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:16,color:B.berry}}>Students for a Better Future</div>
+            <div style={{fontSize:12,color:"#999",marginTop:1}}>Personalised Monthly Planner</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:20}}>
+          {Array.from({length:STEPS}).map((_,i)=><div key={i} style={{height:4,flex:1,borderRadius:2,background:i<=step?B.red:B.grey,transition:"all .3s"}}/>)}
+        </div>
+        <div style={{fontSize:11,color:"#AAA",marginBottom:12}}>Step {step+1} of {STEPS}</div>
+
+        {step===0&&<>
+          <h2 style={st.h2}>Welcome! Let's personalise your planner</h2>
+          <p style={st.sub}>What's your first name?</p>
+          <input style={st.inp} placeholder="Your first name..." value={p.name} onChange={e=>setP({...p,name:e.target.value})} onKeyDown={e=>e.key==="Enter"&&p.name.trim()&&setStep(1)} autoFocus/>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:14,color:"#666",fontWeight:500}}>Grade:</span>
+            {["8","9","10","11","12"].map(g=><button key={g} onClick={()=>{
+              const ns=parseInt(g)<=9?[...SENIOR.compulsory]:p.subs.filter(s=>FET.compulsory.includes(s)||FET.math.includes(s)||FET.electives.includes(s)||FET.languages.includes(s));
+              setP({...p,grade:g,subs:ns});
+            }} style={{padding:"8px 18px",borderRadius:8,border:`1.5px solid ${p.grade===g?B.red:B.grey}`,background:p.grade===g?B.red:"#FAFAF7",color:p.grade===g?"#fff":"#555",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{g}</button>)}
+          </div>
+          <div style={{fontSize:12,color:B.coral,marginBottom:16,fontWeight:500}}>{isSP?"Senior Phase (CAPS)":"FET Phase (CAPS)"}</div>
+          <button style={{...st.btn,opacity:p.name.trim()?1:.4}} disabled={!p.name.trim()} onClick={()=>{if(isSP)setP(pr=>({...pr,subs:[...SENIOR.compulsory]}));setStep(1);}}>Next →</button>
+        </>}
+
+        {step===1&&<>
+          <h2 style={st.h2}>Hi {p.name}! {isSP?"Your Grade "+p.grade+" Subjects":"Pick your subjects"}</h2>
+          <p style={st.sub}>{isSP?"These are compulsory. You can add an additional language.":"Select your subjects for Grade "+p.grade}</p>
+          <div style={{maxHeight:380,overflowY:"auto",paddingRight:8}}>
+            {getSubs(p.grade).map(sec=><div key={sec.title} style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:600,color:B.berry,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{sec.title}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {sec.items.map(s=>{const on=p.subs.includes(s);return <button key={s} style={{padding:"7px 13px",borderRadius:20,border:`1.5px solid ${on?B.red:sec.req?"#D4D4D0":"#E0E0DC"}`,background:on?B.redLight:sec.req?"#FAFAF7":"#F5F5F3",color:on?B.red:"#777",fontSize:12,fontWeight:on?600:400,cursor:sec.req&&isSP?"default":"pointer",fontFamily:"'DM Sans',sans-serif",opacity:sec.req&&isSP?.85:1}}
+                  onClick={()=>{if(sec.req&&isSP)return;if(sec.radio){const o=sec.items.find(x=>x!==s);setP({...p,subs:[...p.subs.filter(x=>x!==o&&x!==s),s]});}else setP({...p,subs:on?p.subs.filter(x=>x!==s):[...p.subs,s]});}}>{on?"✓ ":""}{s}</button>;})}
+              </div>
+            </div>)}
+          </div>
+          <div style={{fontSize:12,fontWeight:600,color:B.berry,marginBottom:8}}>Add a custom subject:</div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <input style={{...st.inp,flex:1,marginBottom:0}} placeholder="e.g. Mandarin, Robotics..." value={customSub} onChange={e=>setCustomSub(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&customSub.trim()&&!p.subs.includes(customSub.trim())){setP({...p,subs:[...p.subs,customSub.trim()]});setCustomSub("");}}}/>
+            <button style={{...st.btn,width:"auto",padding:"0 20px"}} onClick={()=>{if(customSub.trim()&&!p.subs.includes(customSub.trim())){setP({...p,subs:[...p.subs,customSub.trim()]});setCustomSub("");}}}>+</button>
+          </div>
+          <div style={st.nav}><Back to={0}/><button style={{...st.btn,flex:1,opacity:p.subs.length>=4?1:.4}} disabled={p.subs.length<4} onClick={()=>setStep(2)}>Next →</button></div>
+        </>}
+
+        {step===2&&<>
+          <h2 style={st.h2}>Extracurricular Activities</h2>
+          <p style={st.sub}>Sports, clubs, music — anything outside class</p>
+          <p style={{fontSize:12,color:"#AAA",marginTop:4,marginBottom:8}}>Add one at a time, then press + or Enter</p>
+          <div style={{display:"flex",gap:8}}>
+            <input style={{...st.inp,flex:1,marginBottom:0}} placeholder="e.g. Soccer, Chess Club, Piano..." value={tmp} onChange={e=>setTmp(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&tmp.trim()){setP({...p,extras:[...p.extras,tmp.trim()]});setTmp("");}}}/>
+            <button style={{...st.btn,width:"auto",padding:"0 20px"}} onClick={()=>{if(tmp.trim()){setP({...p,extras:[...p.extras,tmp.trim()]});setTmp("");}}}>+</button>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,margin:"12px 0 20px",minHeight:32}}>
+            {p.extras.map((a,i)=><Chip key={i} bg="#E5F5E8" border="#2D8A6F" color="#2D7A5F" onRemove={()=>setP({...p,extras:p.extras.filter((_,j)=>j!==i)})}>{a}</Chip>)}
+          </div>
+          <div style={st.nav}><Back to={1}/><button style={{...st.btn,flex:1}} onClick={()=>setStep(3)}>Next →</button></div>
+        </>}
+
+        {step===3&&<>
+          <h2 style={st.h2}>Extra Tutoring</h2>
+          <p style={st.sub}>Any extra lessons or tutoring outside school — Maths tutoring, English extra classes, study groups</p>
+          <div style={{display:"flex",gap:8}}>
+            <input style={{...st.inp,flex:1,marginBottom:0}} placeholder="e.g. Extra Maths, Science tutoring..." value={tmp2} onChange={e=>setTmp2(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&tmp2.trim()){setP({...p,tutoring:[...p.tutoring,tmp2.trim()]});setTmp2("");}}}/>
+            <button style={{...st.btn,width:"auto",padding:"0 20px"}} onClick={()=>{if(tmp2.trim()){setP({...p,tutoring:[...p.tutoring,tmp2.trim()]});setTmp2("");}}}>+</button>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,margin:"12px 0 8px",minHeight:32}}>
+            {p.tutoring.map((t,i)=><Chip key={i} bg="#FFF3F0" border={B.coral} color="#C04020" onRemove={()=>setP({...p,tutoring:p.tutoring.filter((_,j)=>j!==i)})}>{t}</Chip>)}
+          </div>
+          <p style={{fontSize:12,color:"#BBB",marginBottom:16}}>No extra tutoring? No problem — just skip ahead.</p>
+          <div style={st.nav}><Back to={2}/><button style={{...st.btn,flex:1}} onClick={()=>setStep(4)}>Next →</button></div>
+        </>}
+
+        {step===4&&<>
+          <h2 style={st.h2}>Life Commitments</h2>
+          <p style={st.sub}>Church, mosque, family time, birthdays, chores — your regular commitments</p>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <input style={{...st.inp,flex:1,minWidth:140,marginBottom:0}} placeholder="e.g. Church, Family dinner..." value={tmpC.name} onChange={e=>setTmpC({...tmpC,name:e.target.value})} onKeyDown={e=>{if(e.key==="Enter"&&tmpC.name.trim()){setP({...p,commits:[...p.commits,{...tmpC}]});setTmpC({name:"",day:"Saturday"});}}}/>
+            <select style={{padding:"10px 12px",borderRadius:10,border:`1.5px solid ${B.grey}`,fontSize:13,fontFamily:"'DM Sans',sans-serif",background:"#FAFAF7"}} value={tmpC.day} onChange={e=>setTmpC({...tmpC,day:e.target.value})}>
+              {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Flexible"].map(d=><option key={d}>{d}</option>)}
+            </select>
+            <button style={{...st.btn,width:"auto",padding:"0 20px"}} onClick={()=>{if(tmpC.name.trim()){setP({...p,commits:[...p.commits,{...tmpC}]});setTmpC({name:"",day:"Saturday"});}}}>+</button>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,margin:"12px 0 20px",minHeight:32}}>
+            {p.commits.map((c,i)=><Chip key={i} bg={B.honeyLight} border={B.honey} color="#8B6914" onRemove={()=>setP({...p,commits:p.commits.filter((_,j)=>j!==i)})}>{c.name} <span style={{fontSize:11,opacity:.5}}>({c.day})</span></Chip>)}
+          </div>
+          <div style={st.nav}><Back to={3}/><button style={{...st.btn,flex:1}} onClick={()=>setStep(5)}>Next →</button></div>
+        </>}
+
+        {step===5&&<>
+          <h2 style={st.h2}>Daily Life & Routines</h2>
+          <p style={st.sub}>Set your regular daily schedule — when you wake up, travel, eat, sleep. Toggle what applies and adjust times.</p>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+            {p.routines.map((r,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:r.enabled?"#F9F9F6":"#FAFAF7",border:`1px solid ${r.enabled?"#E0E0DC":"#F0F0ED"}`,opacity:r.enabled?1:.5}}>
+              <span style={{fontSize:18}}>{r.icon||"📌"}</span>
+              <span style={{flex:1,fontSize:14,fontWeight:r.enabled?500:400,color:r.enabled?B.berry:"#999"}}>{r.name}</span>
+              <input type="time" value={r.time} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${B.grey}`,fontSize:13,fontFamily:"'DM Sans',sans-serif",background:"#fff",width:100}} onChange={e=>{const u=[...p.routines];u[i]={...u[i],time:e.target.value};setP({...p,routines:u});}}/>
+              <button style={{width:36,height:36,borderRadius:"50%",border:`1.5px solid ${r.enabled?B.red:B.grey}`,background:r.enabled?B.redLight:"#fff",color:r.enabled?B.red:"#CCC",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>{const u=[...p.routines];u[i]={...u[i],enabled:!u[i].enabled};setP({...p,routines:u});}}>{r.enabled?"✓":"○"}</button>
+            </div>)}
+          </div>
+          <div style={{fontSize:12,fontWeight:600,color:B.berry,marginBottom:8}}>Add a custom routine:</div>
+          <div style={{display:"flex",gap:8,marginBottom:20}}>
+            <input style={{...st.inp,flex:1,marginBottom:0}} placeholder="e.g. Custom routine..." value={newR.name} onChange={e=>setNewR({...newR,name:e.target.value})} onKeyDown={e=>{if(e.key==="Enter"&&newR.name.trim()){setP({...p,routines:[...p.routines,{...newR,enabled:true,icon:"📌"}]});setNewR({name:"",time:"12:00"});}}}/>
+            <input type="time" value={newR.time} style={{padding:"10px 12px",borderRadius:10,border:`1.5px solid ${B.grey}`,fontSize:13,fontFamily:"'DM Sans',sans-serif",background:"#FAFAF7",width:110}} onChange={e=>setNewR({...newR,time:e.target.value})}/>
+            <button style={{...st.btn,width:"auto",padding:"0 20px"}} onClick={()=>{if(newR.name.trim()){setP({...p,routines:[...p.routines,{...newR,enabled:true,icon:"📌"}]});setNewR({name:"",time:"12:00"});}}}>+</button>
+          </div>
+          <div style={st.nav}><Back to={4}/><button style={{...st.btn,flex:1}} onClick={()=>setStep(STEPS)}>Launch My Planner 🚀</button></div>
+        </>}
+      </div>
+    </div>
+  );
+
+  const WelcomePopup=()=>showWelcome&&step>=STEPS?(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:20,padding:"32px 28px",maxWidth:460,width:"100%",boxShadow:"0 12px 48px rgba(0,0,0,.12)",textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:10}}>🎉</div>
+        <h2 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:22,color:B.berry,marginBottom:8}}>Welcome to your planner, {p.name}!</h2>
+        <p style={{fontSize:14,color:"#666",lineHeight:1.7,marginBottom:16}}>
+          This is your space to stay on top of everything. Start by tapping on any day to add:
+        </p>
+        <div style={{textAlign:"left",background:B.greyLight,borderRadius:12,padding:"14px 18px",marginBottom:18}}>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {[
+              {icon:"📝",text:"Assessments, tests & exams"},
+              {icon:"📅",text:"Due dates for assignments & projects"},
+              {icon:"⚽",text:"Extracurriculars & activities"},
+              {icon:"📚",text:"Study sessions & tutoring"},
+              {icon:"🎯",text:"Personal goals & commitments"}
+            ].map((item,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:10,fontSize:13,color:"#444"}}><span style={{fontSize:16}}>{item.icon}</span>{item.text}</div>)}
+          </div>
+        </div>
+        <p style={{fontSize:13,color:"#888",lineHeight:1.6,marginBottom:20,fontStyle:"italic"}}>
+          Come back often to update and add to it — the more you use it, the more it works for you!
+        </p>
+        <button style={{...st.btn,maxWidth:220,margin:"0 auto"}} onClick={()=>setShowWelcome(false)}>Let's Go! 🚀</button>
+      </div>
+    </div>
+  ):null;
+
+  /* ── MAIN PLANNER ── */
+  const dim=new Date(yr,mo+1,0).getDate();
+  const first=(()=>{let x=new Date(yr,mo,1).getDay();return x===0?6:x-1;})();
+  const cells=[];for(let i=0;i<first;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);while(cells.length%7)cells.push(null);
+  const td=new Date();const isT=d=>d&&td.getDate()===d&&td.getMonth()===mo&&td.getFullYear()===yr;
+  const pM=()=>{if(mo===0){setMo(11);setYr(yr-1);}else setMo(mo-1);setSel(null);};
+  const nM=()=>{if(mo===11){setMo(0);setYr(yr+1);}else setMo(mo+1);setSel(null);};
+  const qi=[...p.subs.map(s=>({l:s,cat:"school",border:B.berry,bg:B.powderLight,color:B.berry})),...p.extras.map(a=>({l:a,cat:"extra",border:"#2D8A6F",bg:"#E5F5E8",color:"#2D7A5F"})),...p.tutoring.map(t=>({l:t,cat:"tutor",border:B.coral,bg:"#FFF3F0",color:"#C04020"})),...p.commits.map(c=>({l:c.name,cat:"commit",border:B.honey,bg:B.honeyLight,color:"#8B6914"})),...p.routines.filter(r=>r.enabled).map(r=>({l:r.name,cat:"routine",border:"#8B8B8B",bg:"#F3F3F0",color:"#555"}))];
+
+  return(
+    <div style={{display:"flex",minHeight:"100vh",background:"#FAFAF7",fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
+      <WelcomePopup/>
+      {/* MOBILE SIDEBAR TOGGLE */}
+      <button className="sidebar-toggle" onClick={()=>setSideOpen(!sideOpen)} style={{display:"none",position:"fixed",top:12,left:12,zIndex:101,width:38,height:38,borderRadius:10,border:`1.5px solid ${B.grey}`,background:"#fff",alignItems:"center",justifyContent:"center",fontSize:20,cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.1)"}}>{sideOpen?"✕":"☰"}</button>
+      {sideOpen&&<div className="sidebar-overlay" onClick={()=>setSideOpen(false)}/>}
+      {/* SIDEBAR */}
+      <div className={`sidebar${sideOpen?" open":""}`} style={{width:220,background:"#fff",borderRight:`1px solid ${B.grey}`,padding:"18px 14px",display:"flex",flexDirection:"column",overflowY:"auto",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,paddingBottom:14,borderBottom:`1px solid ${B.grey}`}}>
+          <Lg s={34}/>
+          <div>
+            <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:14,color:B.berry}}>{p.name}'s Planner</div>
+            <div style={{fontSize:11,color:"#999"}}>Grade {p.grade} · {isSP?"Senior Phase":"FET"}</div>
+          </div>
+        </div>
+        {[{l:"Subjects",it:p.subs,b:B.berry,bg:B.powderLight},{l:"Activities",it:p.extras,b:"#2D8A6F",bg:"#E5F5E8"},{l:"Extra Tutoring",it:p.tutoring,b:B.coral,bg:"#FFF3F0"}].map(sec=>sec.it.length>0&&<div key={sec.l} style={{marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:1.2,marginBottom:5}}>{sec.l}</div>
+          {sec.it.map(it=><div key={it} style={{display:"flex",alignItems:"center",gap:7,padding:"2px 0"}}><span style={{width:10,height:10,borderRadius:"50%",background:sec.bg,border:`2px solid ${sec.b}`,flexShrink:0}}/><span style={{fontSize:11}}>{it}</span></div>)}
+        </div>)}
+        {p.commits.length>0&&<div style={{marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:1.2,marginBottom:5}}>Commitments</div>
+          {p.commits.map((c,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:7,padding:"2px 0"}}><span style={{width:10,height:10,borderRadius:"50%",background:B.honeyLight,border:`2px solid ${B.honey}`,flexShrink:0}}/><span style={{fontSize:11}}>{c.name}</span></div>)}
+        </div>}
+        {p.routines.filter(r=>r.enabled).length>0&&<div style={{marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:1.2,marginBottom:5}}>Daily Routines</div>
+          {p.routines.filter(r=>r.enabled).map((r,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:7,padding:"2px 0"}}><span style={{fontSize:12}}>{r.icon}</span><span style={{fontSize:11}}>{r.name} <span style={{opacity:.4,fontSize:9}}>{r.time}</span></span></div>)}
+        </div>}
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Colour Key</div>
+          {CATS.map(c=><div key={c.key} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0"}}><span style={{width:13,height:13,borderRadius:3,background:c.bg,border:`2px solid ${c.border}`,flexShrink:0}}/><span style={{fontSize:10}}>{c.label}</span></div>)}
+        </div>
+        <div style={{marginTop:"auto",paddingTop:14,borderTop:`1px solid ${B.grey}`}}>
+          <button className="no-print" style={{...st.sec,width:"100%",fontSize:11,marginBottom:6}} onClick={()=>setStep(0)}>✏️ Edit Profile</button>
+          <button className="no-print" style={{...st.sec,width:"100%",fontSize:11,color:"#C04020",borderColor:"#F5C0B0"}} onClick={reset}>🗑 Reset Planner</button>
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div className="main-area" style={{flex:1,padding:"22px 26px",overflowY:"auto"}}>
+        <div className="top-bar" style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+          <div>
+            <h1 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:28,color:B.berry,margin:0}}>{MO[mo]} {yr}</h1>
+            <p className="top-bar-sub" style={{fontSize:12,color:"#999",margin:"3px 0 0"}}>{p.name}'s Monthly Planner — Grade {p.grade} · Students for a Better Future</p>
+          </div>
+          <div className="no-print" style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+            <div ref={exportRef} style={{position:"relative"}}>
+              <button style={{...st.btn,display:"flex",alignItems:"center",gap:6,padding:"10px 18px"}} onClick={()=>setShowExport(!showExport)} disabled={exporting}>{exporting?"⏳ Exporting...":"💾 Save & Export"}</button>
+              {showExport&&<div style={{position:"absolute",right:0,top:"110%",background:"#fff",borderRadius:12,border:`1.5px solid ${B.grey}`,boxShadow:"0 6px 24px rgba(0,0,0,.1)",padding:6,zIndex:50,minWidth:160}}>
+                <button style={{...st.sec,width:"100%",textAlign:"left",marginBottom:4,border:"none",borderRadius:8,padding:"10px 14px"}} onClick={()=>exportAs("jpeg")}>🖼 Save as JPEG</button>
+                <button style={{...st.sec,width:"100%",textAlign:"left",marginBottom:4,border:"none",borderRadius:8,padding:"10px 14px"}} onClick={()=>exportAs("pdf")}>📄 Save as PDF</button>
+                <button style={{...st.sec,width:"100%",textAlign:"left",border:"none",borderRadius:8,padding:"10px 14px"}} onClick={()=>{setShowExport(false);window.print();}}>🖨 Print</button>
+              </div>}
+            </div>
+            <p style={{fontSize:12,color:"#2D3B6B",textAlign:"right",margin:0,maxWidth:200,lineHeight:1.5,fontWeight:500}}>Done? Save & Export — then come back any time to add or edit your plan.</p>
+          </div>
+        </div>
+        <div className="no-print" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:12}}>
+          <button style={st.navB} onClick={pM}>‹</button>
+          <span style={{fontWeight:600,fontSize:15,fontFamily:"'DM Serif Display',Georgia,serif",color:B.berry}}>{MO[mo]} {yr}</span>
+          <button style={st.navB} onClick={nM}>›</button>
+          {(mo!==new Date().getMonth()||yr!==new Date().getFullYear())&&<button style={{...st.sec,fontSize:11,padding:"6px 12px"}} onClick={()=>{setMo(new Date().getMonth());setYr(new Date().getFullYear());setSel(null);}}>Today</button>}
+        </div>
+        <div ref={calRef} style={{background:"#fff",borderRadius:16,padding:18,border:`1px solid ${B.grey}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:`2px solid ${B.red}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <Lg s={30}/>
+              <div>
+                <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:17,color:B.berry}}>{p.name}'s Monthly Planner</div>
+                <div style={{fontSize:10,color:"#999"}}>Students for a Better Future — Grade {p.grade}</div>
+              </div>
+            </div>
+            <div style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:15,color:B.red}}>{MO[mo]} {yr}</div>
+          </div>
+          {Object.keys(evts).length===0&&<div style={{textAlign:"center",padding:"10px 0 4px",fontSize:13,color:"#AAA"}}>👆 Click any day to add an event</div>}
+          <div className="cal-scroll-wrap"><div className="cal-scroll-inner">
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,background:B.grey,borderRadius:10,overflow:"hidden"}}>
+            {DAYS_W.map(d=><div key={d} style={{background:B.berry,color:"#fff",padding:"9px 4px",textAlign:"center",fontSize:11,fontWeight:600}}>{d}</div>)}
+            {cells.map((d,i)=>{const de=d?(evts[dk(d)]||[]):[];const wk=(i%7)>=5;return(
+              <div key={i} style={{background:!d?"#FAFAF7":sel===d?B.powderLight:isT(d)?"#FFF5F5":wk?"#FDFCF9":"#fff",minHeight:85,padding:5,cursor:d?"pointer":"default",...(sel===d?{boxShadow:`inset 0 0 0 2px ${B.red}`}:{})}} onClick={()=>d&&setSel(d)}>
+                {d&&<>
+                  <div style={{fontSize:12,fontWeight:600,color:isT(d)?"#fff":B.berry,marginBottom:2,...(isT(d)?{background:B.red,borderRadius:"50%",width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}:{})}}>{d}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                    {de.slice(0,3).map((ev,j)=>{const c=CM[ev.cat]||CM.free;return <div key={j} style={{fontSize:9,padding:"1px 4px",borderRadius:3,background:c.bg,borderLeft:`3px solid ${c.border}`,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.5}}><b style={{opacity:.5}}>{ev.time}</b> {ev.title}</div>;})}
+                    {de.length>3&&<div style={{fontSize:9,color:"#999"}}>+{de.length-3} more</div>}
+                  </div>
+                </>}
+              </div>
+            );})}
+          </div>
+          </div></div>
+          <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${B.grey}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>{CATS.map(c=><div key={c.key} style={{display:"flex",alignItems:"center",gap:3,fontSize:9}}><span style={{width:11,height:11,borderRadius:3,background:c.bg,border:`2px solid ${c.border}`}}/>{c.label}</div>)}</div>
+            <div style={{fontSize:8,color:"#CCC"}}>Students for a Better Future © {yr}</div>
+          </div>
+        </div>
+
+        {/* ROTATE HINT — portrait mobile only, controlled by CSS */}
+        <div className="rotate-hint no-print" style={{position:"fixed",bottom:0,left:0,right:0,background:B.berry,color:"#fff",padding:"12px 18px",alignItems:"center",justifyContent:"center",gap:10,zIndex:150,fontSize:13,fontWeight:500}}>
+          <span style={{fontSize:20}}>📱</span>
+          <span>Rotate your phone for the best planner view</span>
+        </div>
+
+        {/* DAY DETAIL MODAL */}
+        {sel&&<div className="no-print" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={(e)=>{if(e.target===e.currentTarget){setSel(null);setShowF(false);}}}>
+          <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.2)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <h3 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:22,color:B.berry,margin:0}}>{DAYS_W[(first+sel-1)%7]} {sel} {MO[mo]}</h3>
+              <button style={{...st.navB,fontSize:20,width:32,height:32}} onClick={()=>{setSel(null);setShowF(false);}}>×</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+              {(evts[dk(sel)]||[]).sort((a,b)=>a.time.localeCompare(b.time)).map((ev,i)=>{const c=CM[ev.cat]||CM.free;return(
+                <div key={i} style={{padding:"11px 13px",borderRadius:10,background:c.bg,borderLeft:`4px solid ${c.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:14}}>{ev.title}</div>
+                      <div style={{fontSize:12,color:"#666",marginTop:2}}>{ev.time} · {c.label}</div>
+                      {ev.notes&&<div style={{fontSize:11,color:"#888",marginTop:3,fontStyle:"italic"}}>{ev.notes}</div>}
+                    </div>
+                    <div style={{display:"flex",gap:4}}>
+                      <button style={{background:"none",border:"none",cursor:"pointer",fontSize:13}} onClick={()=>{setF({...ev});setEIdx(i);setShowF(true);}}>✏️</button>
+                      <button style={{background:"none",border:"none",cursor:"pointer",fontSize:13}} onClick={()=>rm(sel,i)}>🗑</button>
+                    </div>
+                  </div>
+                </div>
+              );})}
+              {(!evts[dk(sel)]||!evts[dk(sel)].length)&&<p style={{color:"#CCC",fontSize:13,textAlign:"center",padding:14}}>No events yet — add one below!</p>}
+            </div>
+            {!showF?<button style={st.btn} onClick={()=>{setShowF(true);setEIdx(null);setF({title:"",cat:"study",time:"09:00",notes:""});}}>+ Add to this day</button>
+            :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:600,color:"#AAA",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>What is it?</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[
+                    {icon:"📝",label:"Test",cat:"exam"},
+                    {icon:"📊",label:"Assessment",cat:"assessment"},
+                    {icon:"📋",label:"Project Due",cat:"project"},
+                    {icon:"📅",label:"Assignment Due",cat:"project"},
+                    {icon:"📚",label:"Study Session",cat:"study"},
+                    {icon:"🏫",label:"School Event",cat:"school"},
+                    {icon:"⚽",label:"Activity",cat:"extra"},
+                    {icon:"🌟",label:"Free Time",cat:"free"},
+                    {icon:"⏰",label:"Other",cat:"free"},
+                  ].map((t,i)=>{const active=f.cat===t.cat&&f.title.startsWith(t.label);const c=CM[t.cat];return(
+                    <button key={i} style={{padding:"5px 10px",borderRadius:20,border:`1.5px solid ${active?c.border:B.grey}`,background:active?c.bg:"#fff",color:active?c.border:"#666",fontSize:11,fontWeight:active?600:400,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}} onClick={()=>setF({...f,cat:t.cat,title:t.label+": "})}>
+                      {t.icon} {t.label}
+                    </button>
+                  );})}
+                </div>
+              </div>
+              <input style={st.inp} placeholder="Add detail — e.g. Maths Test, History Essay..." value={f.title} onChange={e=>setF({...f,title:e.target.value})} autoFocus/>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <input type="time" style={{...st.inp,flex:1,minWidth:110,marginBottom:0}} value={f.time} onChange={e=>setF({...f,time:e.target.value})}/>
+                <select style={{padding:"10px 12px",borderRadius:10,border:`1.5px solid ${B.grey}`,fontSize:13,fontFamily:"'DM Sans',sans-serif",background:"#FAFAF7",flex:1}} value={f.cat} onChange={e=>setF({...f,cat:e.target.value})}>{CATS.map(c=><option key={c.key} value={c.key}>{c.label}</option>)}</select>
+              </div>
+              <input style={{...st.inp,marginBottom:0}} placeholder="Notes (optional)..." value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...st.btn,flex:1}} onClick={save}>{eIdx!==null?"Update":"Save"}</button>
+                <button style={{...st.sec,flex:1}} onClick={()=>{setShowF(false);setEIdx(null);}}>Cancel</button>
+              </div>
+            </div>}
+          </div>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+const st={
+  wrap:{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(145deg,#FAFAF7 0%,#E6E6E6 100%)",padding:20,fontFamily:"'DM Sans','Segoe UI',sans-serif"},
+  card:{background:"#fff",borderRadius:20,padding:"36px 32px",maxWidth:600,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,0.06)",border:"1px solid #E6E6E6"},
+  h2:{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:24,color:"#27265F",margin:"0 0 6px"},
+  sub:{fontSize:14,color:"#888",margin:"0 0 16px",lineHeight:1.5},
+  inp:{width:"100%",padding:"12px 16px",borderRadius:10,border:"1.5px solid #E6E6E6",fontSize:14,fontFamily:"'DM Sans',sans-serif",outline:"none",background:"#FAFAF7",boxSizing:"border-box",marginBottom:12},
+  btn:{padding:"12px 24px",borderRadius:10,border:"none",background:"#BF1717",color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",width:"100%"},
+  sec:{padding:"10px 18px",borderRadius:10,border:"1.5px solid #E6E6E6",background:"#fff",color:"#555",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"},
+  nav:{display:"flex",gap:10},
+  navB:{width:34,height:34,borderRadius:"50%",border:"1px solid #E6E6E6",background:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"#27265F",fontFamily:"'DM Sans',sans-serif"}
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
