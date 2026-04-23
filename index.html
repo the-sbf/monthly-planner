@@ -145,7 +145,7 @@ function App(){
       // PDF
       const {jsPDF}=window.jspdf;
       const ratio=canvas.width/canvas.height;
-      const pdf=ratio>=1?new jsPDF("landscape","mm","a4"):new jsPDF("portrait","mm","a4");
+      const pdf=new jsPDF("landscape","mm","a4");
       const pW=pdf.internal.pageSize.getWidth(),pH=pdf.internal.pageSize.getHeight();
       let w,h;if(canvas.width/canvas.height>pW/pH){w=pW;h=pW/ratio;}else{h=pH;w=pH*ratio;}
       pdf.addImage(canvas.toDataURL("image/jpeg",0.95),"JPEG",(pW-w)/2,(pH-h)/2,w,h);
@@ -252,7 +252,7 @@ function App(){
         const {jsPDF}=window.jspdf;
         const imgW=canvas.width;const imgH=canvas.height;
         const ratio=imgW/imgH;
-        const pdf=ratio>=1?new jsPDF("landscape","mm","a4"):new jsPDF("portrait","mm","a4");
+        const pdf=new jsPDF("landscape","mm","a4");
         const pageW=pdf.internal.pageSize.getWidth();const pageH=pdf.internal.pageSize.getHeight();
         let w,h;
         if(imgW/imgH>pageW/pageH){w=pageW;h=pageW/ratio;}
@@ -594,7 +594,7 @@ function App(){
           <button style={st.navB} onClick={nM}>›</button>
           {(mo!==new Date().getMonth()||yr!==new Date().getFullYear())&&<button style={{...st.sec,fontSize:11,padding:"6px 12px"}} onClick={()=>{setMo(new Date().getMonth());setYr(new Date().getFullYear());setSel(null);}}>Today</button>}
         </div>
-        <div ref={calRef} style={{background:"#fff",borderRadius:16,padding:18,border:`1px solid ${B.grey}`}}>
+        <div ref={calRef} style={{background:"#fff",borderRadius:16,padding:18,border:`1px solid ${B.grey}`,minWidth:900}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:10,borderBottom:`2px solid ${B.red}`}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <Lg s={30}/>
