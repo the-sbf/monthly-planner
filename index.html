@@ -21,17 +21,37 @@
   }
   /* Mobile */
   @media (max-width: 768px) {
+    html, body { overflow-x: hidden; }
+    input, select, textarea, button { font-size: 16px !important; } /* prevent iOS zoom-on-focus */
     .sidebar { display: none !important; }
     .sidebar-toggle { display: flex !important; }
-    .sidebar.open { display: flex !important; position: fixed; top: 0; left: 0; z-index: 100; height: 100vh; width: 260px; box-shadow: 4px 0 24px rgba(0,0,0,.15); }
+    .sidebar.open { display: flex !important; position: fixed; top: 0; left: 0; z-index: 100; height: 100vh; width: 85vw; max-width: 300px; box-shadow: 4px 0 24px rgba(0,0,0,.15); }
     .sidebar-overlay { display: block !important; position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 99; }
-    .main-area { padding: 52px 10px 14px !important; }
-    .cal-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; }
+    .main-area { padding: 56px 12px 80px !important; }
+    .cal-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-snap-type: x mandatory; margin: 0 -6px; padding: 0 6px; }
     .cal-scroll-inner { min-width: 700px; }
-    .top-bar { flex-direction: row; align-items: center; gap: 8px; }
-    .top-bar h1 { font-size: 20px !important; }
+    .top-bar { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+    .top-bar h1 { font-size: 22px !important; }
     .top-bar-sub { display: none !important; }
-    .day-detail { padding: 14px !important; }
+    .top-bar > div:last-child { width: 100%; align-items: stretch !important; }
+    .top-bar > div:last-child button { width: 100%; justify-content: center; }
+    .top-bar > div:last-child p { text-align: center !important; max-width: 100% !important; }
+    .day-detail { padding: 14px !important; border-radius: 14px !important; }
+    /* Wizard card fills screen */
+    .wizard-wrap { padding: 12px !important; align-items: flex-start !important; }
+    .wizard-card { padding: 22px 18px !important; border-radius: 16px !important; max-height: calc(100vh - 24px); overflow-y: auto; }
+    .wizard-card h2 { font-size: 20px !important; }
+    /* Popups */
+    .popup-card { padding: 24px 18px !important; border-radius: 16px !important; max-height: 90vh; overflow-y: auto; }
+    /* Make touch targets larger */
+    button { min-height: 40px; }
+    /* Floating finish button on mobile - sticky bottom */
+    .mobile-finish-bar { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #E6E6E6; padding: 10px 12px; z-index: 80; box-shadow: 0 -4px 16px rgba(0,0,0,.06); gap: 8px; }
+  }
+  .mobile-finish-bar { display: none; }
+  @media (min-width: 769px) {
+    .sidebar-toggle { display: none !important; }
+    .sidebar-overlay { display: none !important; }
   }
   @media (min-width: 769px) {
     .sidebar-toggle { display: none !important; }
@@ -50,6 +70,7 @@
 const { useState, useRef, useEffect } = React;
 
 const STORAGE_KEY="sbf_planner";
+const SBF_EMAIL="highschool@mysbf.co.za";
 function loadSaved(){try{const d=JSON.parse(localStorage.getItem(STORAGE_KEY));if(d&&d.profile&&d.profile.name)return d;return null;}catch(e){return null;}}
 function saveToDisk(profile,events,email){try{localStorage.setItem(STORAGE_KEY,JSON.stringify({profile,events,email:email||'',savedAt:new Date().toISOString()}));}catch(e){console.warn("Save failed",e);}}
 
@@ -108,6 +129,48 @@ function App(){
   const[exporting,setExporting]=useState(false);
   const calRef=useRef(null);
   const exportRef=useRef(null);
+  const[showDone,setShowDone]=useState(false);
+
+  const[pdfLink,setPdfLink]=useState("");
+
+  const finalisePlan=async()=>{
+    setExporting(true);setShowExport(false);setPdfLink("");
+    try{
+      const el=calRef.current;if(!el)return;
+      const canvas=await html2canvas(el,{scale:2,useCORS:true,backgroundColor:"#fff"});
+      const base=`${(p.name||"Planner").replace(/[^a-zA-Z0-9_-]/g,"_")}_${MO[mo]}_${yr}`;
+      // JPEG download
+      const jpgLink=document.createElement("a");
+      jpgLink.download=`${base}.jpg`;jpgLink.href=canvas.toDataURL("image/jpeg",0.95);jpgLink.click();
+      // PDF
+      const {jsPDF}=window.jspdf;
+      const ratio=canvas.width/canvas.height;
+      const pdf=ratio>=1?new jsPDF("landscape","mm","a4"):new jsPDF("portrait","mm","a4");
+      const pW=pdf.internal.pageSize.getWidth(),pH=pdf.internal.pageSize.getHeight();
+      let w,h;if(canvas.width/canvas.height>pW/pH){w=pW;h=pW/ratio;}else{h=pH;w=pH*ratio;}
+      pdf.addImage(canvas.toDataURL("image/jpeg",0.95),"JPEG",(pW-w)/2,(pH-h)/2,w,h);
+      pdf.save(`${base}.pdf`);
+      // Upload to Supabase Storage
+      try{
+        const pdfBlob=pdf.output("blob");
+        const safeEmail=(userEmail||"anon").replace(/[^a-zA-Z0-9_-]/g,"_");
+        const path=`${safeEmail}/${base}_${Date.now()}.pdf`;
+        const{error:upErr}=await supa.storage.from("planners-pdfs").upload(path,pdfBlob,{contentType:"application/pdf",upsert:true});
+        if(upErr)throw upErr;
+        const{data:pub}=supa.storage.from("planners-pdfs").getPublicUrl(path);
+        if(pub&&pub.publicUrl)setPdfLink(pub.publicUrl);
+      }catch(upE){console.warn("Storage upload failed — link unavailable",upE);}
+      setShowDone(true);
+    }catch(e){console.error(e);alert("Something went wrong — please try again.");}
+    finally{setExporting(false);}
+  };
+
+  const emailToSBF=()=>{
+    const subj=encodeURIComponent(`${p.name}'s Monthly Planner – ${MO[mo]} ${yr}`);
+    const linkLine=pdfLink?`\n\n🔗 View my planner here: ${pdfLink}`:`\n\n(My planner is attached — saved to my device. Please remember to attach it before sending!)`;
+    const body=encodeURIComponent(`Hi SBF team,\n\nHere is my monthly plan for ${MO[mo]} ${yr}.\n\nName: ${p.name}\nGrade: ${p.grade}${linkLine}\n\nThanks,\n${p.name}`);
+    window.location.href=`mailto:${SBF_EMAIL}?subject=${subj}&body=${body}`;
+  };
 
   // Escape key closes day panel, add-event form, export dropdown, mobile sidebar
   useEffect(()=>{
@@ -209,8 +272,8 @@ function App(){
 
   /* ── LOGIN ── */
   if(!authed)return(
-    <div style={st.wrap}>
-      <div style={{...st.card,maxWidth:480}}>
+    <div className="wizard-wrap" style={st.wrap}>
+      <div className="wizard-card" style={{...st.card,maxWidth:480}}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28}}>
           <Lg s={48}/>
           <div>
@@ -248,8 +311,8 @@ function App(){
 
   /* ── PRE-TEACH ── only for brand-new users who haven't completed onboarding */
   if(showPreteach&&step<STEPS&&!p.subs?.length)return(
-    <div style={st.wrap}>
-      <div style={{...st.card,maxWidth:560}}>
+    <div className="wizard-wrap" style={st.wrap}>
+      <div className="wizard-card" style={{...st.card,maxWidth:560}}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:22}}>
           <Lg s={44}/>
           <div>
@@ -294,8 +357,8 @@ function App(){
 
   /* ── ONBOARDING ── */
   if(step<STEPS)return(
-    <div style={st.wrap}>
-      <div style={st.card}>
+    <div className="wizard-wrap" style={st.wrap}>
+      <div className="wizard-card" style={st.card}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
           <Lg s={50}/>
           <div>
@@ -410,9 +473,30 @@ function App(){
     </div>
   );
 
+  const DonePopup=()=>showDone?(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:250,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div className="popup-card" style={{background:"#fff",borderRadius:20,padding:"36px 30px",maxWidth:480,width:"100%",boxShadow:"0 14px 50px rgba(0,0,0,.15)",textAlign:"center"}}>
+        <div style={{fontSize:52,marginBottom:10}}>🎉</div>
+        <h2 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:24,color:B.berry,marginBottom:10}}>You did it, {p.name}!</h2>
+        <p style={{fontSize:14,color:"#555",lineHeight:1.7,marginBottom:18}}>Your <b>{MO[mo]} {yr}</b> planner has been saved to your device as a PDF and a JPEG. Check your Downloads folder or Files app.</p>
+        <div style={{background:B.honeyLight,border:`1.5px solid ${B.honey}`,borderRadius:12,padding:"14px 18px",marginBottom:14,textAlign:"left"}}>
+          <div style={{fontSize:13,fontWeight:600,color:"#8B6914",marginBottom:6}}>📬 Share it with SBF</div>
+          <div style={{fontSize:12,color:"#6B5310",lineHeight:1.6}}>{pdfLink?<>Your plan is saved online and the email below includes a link to view it — just tap send!</>:<>Send your plan to your SBF mentor at <b>{SBF_EMAIL}</b>. Tap below to open your email app — don't forget to attach the PDF that just saved!</>}</div>
+        </div>
+        {pdfLink&&<div style={{background:B.powderLight,border:`1.5px solid ${B.powder}`,borderRadius:12,padding:"10px 14px",marginBottom:14,textAlign:"left"}}>
+          <div style={{fontSize:11,fontWeight:600,color:B.berry,marginBottom:4}}>🔗 Shareable link</div>
+          <a href={pdfLink} target="_blank" rel="noopener" style={{fontSize:11,color:B.berry,wordBreak:"break-all",textDecoration:"underline"}}>{pdfLink}</a>
+        </div>}
+        <button style={{...st.btn,marginBottom:10}} onClick={emailToSBF}>📧 Email My Plan to SBF</button>
+        <button style={{...st.sec,width:"100%"}} onClick={()=>setShowDone(false)}>Close</button>
+        <p style={{fontSize:11,color:"#AAA",marginTop:14,lineHeight:1.5,fontStyle:"italic"}}>Keep coming back to update your plan as the month goes on 💛</p>
+      </div>
+    </div>
+  ):null;
+
   const WelcomePopup=()=>showWelcome&&step>=STEPS?(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#fff",borderRadius:20,padding:"32px 28px",maxWidth:460,width:"100%",boxShadow:"0 12px 48px rgba(0,0,0,.12)",textAlign:"center"}}>
+      <div className="popup-card" style={{background:"#fff",borderRadius:20,padding:"32px 28px",maxWidth:460,width:"100%",boxShadow:"0 12px 48px rgba(0,0,0,.12)",textAlign:"center"}}>
         <div style={{fontSize:36,marginBottom:10}}>🎉</div>
         <h2 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:22,color:B.berry,marginBottom:8}}>Welcome to your planner, {p.name}!</h2>
         <p style={{fontSize:14,color:"#666",lineHeight:1.7,marginBottom:16}}>
@@ -449,6 +533,7 @@ function App(){
   return(
     <div style={{display:"flex",minHeight:"100vh",background:"#FAFAF7",fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
       <WelcomePopup/>
+      <DonePopup/>
       {/* MOBILE SIDEBAR TOGGLE */}
       <button className="sidebar-toggle" onClick={()=>setSideOpen(!sideOpen)} style={{display:"none",position:"fixed",top:12,left:12,zIndex:101,width:38,height:38,borderRadius:10,border:`1.5px solid ${B.grey}`,background:"#fff",alignItems:"center",justifyContent:"center",fontSize:20,cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.1)"}}>{sideOpen?"✕":"☰"}</button>
       {sideOpen&&<div className="sidebar-overlay" onClick={()=>setSideOpen(false)}/>}
@@ -490,16 +575,17 @@ function App(){
             <h1 style={{fontFamily:"'DM Serif Display',Georgia,serif",fontSize:28,color:B.berry,margin:0}}>{MO[mo]} {yr}</h1>
             <p className="top-bar-sub" style={{fontSize:12,color:"#999",margin:"3px 0 0"}}>{p.name}'s Monthly Planner — Grade {p.grade} · Students for a Better Future</p>
           </div>
-          <div className="no-print" style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+          <div className="no-print" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+            <button style={{...st.btn,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px 22px",fontSize:15}} onClick={finalisePlan} disabled={exporting}>{exporting?"⏳ Finishing...":"✨ Finish & Send"}</button>
             <div ref={exportRef} style={{position:"relative"}}>
-              <button style={{...st.btn,display:"flex",alignItems:"center",gap:6,padding:"10px 18px"}} onClick={()=>setShowExport(!showExport)} disabled={exporting}>{exporting?"⏳ Exporting...":"💾 Save & Export"}</button>
-              {showExport&&<div style={{position:"absolute",right:0,top:"110%",background:"#fff",borderRadius:12,border:`1.5px solid ${B.grey}`,boxShadow:"0 6px 24px rgba(0,0,0,.1)",padding:6,zIndex:50,minWidth:160}}>
+              <button style={{...st.sec,fontSize:11,padding:"6px 12px"}} onClick={()=>setShowExport(!showExport)} disabled={exporting}>More export options ▾</button>
+              {showExport&&<div style={{position:"absolute",right:0,top:"110%",background:"#fff",borderRadius:12,border:`1.5px solid ${B.grey}`,boxShadow:"0 6px 24px rgba(0,0,0,.1)",padding:6,zIndex:50,minWidth:180}}>
                 <button style={{...st.sec,width:"100%",textAlign:"left",marginBottom:4,border:"none",borderRadius:8,padding:"10px 14px"}} onClick={()=>exportAs("jpeg")}>🖼 Save as JPEG</button>
                 <button style={{...st.sec,width:"100%",textAlign:"left",marginBottom:4,border:"none",borderRadius:8,padding:"10px 14px"}} onClick={()=>exportAs("pdf")}>📄 Save as PDF</button>
                 <button style={{...st.sec,width:"100%",textAlign:"left",border:"none",borderRadius:8,padding:"10px 14px"}} onClick={()=>{setShowExport(false);window.print();}}>🖨 Print</button>
               </div>}
             </div>
-            <p style={{fontSize:12,color:"#2D3B6B",textAlign:"right",margin:0,maxWidth:200,lineHeight:1.5,fontWeight:500}}>Done? Save & Export — then come back any time to add or edit your plan.</p>
+            <p style={{fontSize:12,color:"#2D3B6B",textAlign:"center",margin:0,maxWidth:220,lineHeight:1.5,fontWeight:500}}>Done? Tap Finish & Send to save and share with SBF. Come back anytime to edit.</p>
           </div>
         </div>
         <div className="no-print" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:12}}>
@@ -608,6 +694,10 @@ function App(){
             </div>}
           </div>
         </div>}
+      </div>
+      {/* Mobile sticky finish bar */}
+      <div className="mobile-finish-bar no-print">
+        <button style={{...st.btn,flex:1,padding:"14px 16px",fontSize:15}} onClick={finalisePlan} disabled={exporting}>{exporting?"⏳ Finishing...":"✨ Finish & Send"}</button>
       </div>
     </div>
   );
